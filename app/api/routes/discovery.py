@@ -17,15 +17,48 @@ from app.models import UseCase
 router = APIRouter(prefix="/api/v1", tags=["discovery"])
 
 
+@router.get("/structures")
+def list_structures(db: Session = Depends(get_db)):
+    """
+    List all available Atlas structures.
+    
+    Returns list of structures with metadata (structure_id, name, node_count).
+    """
+    from app.models import DimHierarchy
+    from sqlalchemy import func
+    
+    # Get distinct structures with counts
+    structures = db.query(
+        DimHierarchy.atlas_source,
+        func.count(DimHierarchy.node_id).label('node_count')
+    ).group_by(DimHierarchy.atlas_source).all()
+    
+    result = []
+    for structure_id, node_count in structures:
+        # Generate friendly name from structure_id
+        name = structure_id.replace('_', ' ').title()
+        if structure_id.startswith('MOCK_ATLAS'):
+            name = f"Mock Atlas Structure {structure_id.split('_')[-1]}"
+        
+        result.append({
+            "structure_id": structure_id,
+            "name": name,
+            "node_count": node_count
+        })
+    
+    return {"structures": result}
+
+
 def build_tree_structure(
     hierarchy_dict: Dict,
     children_dict: Dict,
     natural_results: Dict,
     node_id: str,
-    include_pytd: bool = False
+    include_pytd: bool = False,
+    parent_attributes: Dict = None
 ) -> HierarchyNode:
     """
-    Recursively build tree structure from hierarchy.
+    Recursively build tree structure from hierarchy with multi-dimensional attributes.
     
     Args:
         hierarchy_dict: Dictionary mapping node_id -> node data
@@ -33,10 +66,13 @@ def build_tree_structure(
         natural_results: Dictionary mapping node_id -> measure values
         node_id: Current node ID
         include_pytd: Whether to include PYTD measure
+        parent_attributes: Attributes from parent node (for inheritance)
     
     Returns:
-        HierarchyNode with children
+        HierarchyNode with children and attributes
     """
+    from app.engine.finance_hierarchy import get_node_attributes
+    
     node = hierarchy_dict[node_id]
     measures = natural_results.get(node_id, {
         'daily': 0,
@@ -45,15 +81,18 @@ def build_tree_structure(
         'pytd': 0
     })
     
-    # Build children recursively
+    # Extract attributes for this node
+    attrs = get_node_attributes(node.node_id, node.node_name, parent_attributes)
+    
+    # Build children recursively (pass attributes for inheritance)
     children = []
     for child_id in children_dict.get(node_id, []):
         child_node = build_tree_structure(
-            hierarchy_dict, children_dict, natural_results, child_id, include_pytd
+            hierarchy_dict, children_dict, natural_results, child_id, include_pytd, attrs
         )
         children.append(child_node)
     
-    # Create node
+    # Create node with attributes
     node_data = {
         'node_id': node.node_id,
         'node_name': node.node_name,
@@ -63,6 +102,11 @@ def build_tree_structure(
         'daily_pnl': str(measures['daily']),
         'mtd_pnl': str(measures['mtd']),
         'ytd_pnl': str(measures['ytd']),
+        'region': attrs.get('region'),
+        'product': attrs.get('product'),
+        'desk': attrs.get('desk'),
+        'strategy': attrs.get('strategy'),
+        'official_gl_baseline': str(measures['daily']),  # Same as daily_pnl for natural values
         'children': children,
     }
     
@@ -135,9 +179,9 @@ def get_discovery_view(
         hierarchy_dict, children_dict, leaf_nodes, facts_df
     )
     
-    # Build tree structure starting from root
+    # Build tree structure starting from root (with attributes)
     root_node = build_tree_structure(
-        hierarchy_dict, children_dict, natural_results, root_id, include_pytd=False
+        hierarchy_dict, children_dict, natural_results, root_id, include_pytd=False, parent_attributes=None
     )
     
     return DiscoveryResponse(

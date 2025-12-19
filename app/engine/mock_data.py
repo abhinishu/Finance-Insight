@@ -15,21 +15,31 @@ from sqlalchemy.orm import Session
 from app.models import DimHierarchy, FactPnlGold, HierarchyBridge
 
 
-def generate_fact_rows(count: int = 1000) -> List[Dict]:
+def generate_fact_rows(count: int = 1000, hierarchy: List[Dict] = None) -> List[Dict]:
     """
     Generate mock fact rows for fact_pnl_gold table.
     
     Args:
         count: Number of rows to generate (default: 1000)
+        hierarchy: Optional hierarchy list to extract cost center IDs from
     
     Returns:
         List of dictionaries representing fact rows
     """
     facts = []
     
+    # Extract cost center IDs from hierarchy if provided
+    if hierarchy:
+        cost_centers = [h['node_id'] for h in hierarchy if h['is_leaf']]
+        if not cost_centers:
+            # Fallback if no leaf nodes found
+            cost_centers = [f"CC_{i:03d}" for i in range(1, 51)]
+    else:
+        # Fallback: generate generic cost centers
+        cost_centers = [f"CC_{i:03d}" for i in range(1, 51)]  # CC_001 to CC_050 (50 cost centers)
+    
     # Dimension ranges
     accounts = [f"ACC_{i:03d}" for i in range(1, 11)]  # ACC_001 to ACC_010 (10 accounts)
-    cost_centers = [f"CC_{i:03d}" for i in range(1, 51)]  # CC_001 to CC_050 (50 cost centers)
     books = [f"BOOK_{i:02d}" for i in range(1, 11)]  # BOOK_01 to BOOK_10 (10 books)
     strategies = [f"STRAT_{i:02d}" for i in range(1, 6)]  # STRAT_01 to STRAT_05 (5 strategies)
     
@@ -67,6 +77,19 @@ def generate_fact_rows(count: int = 1000) -> List[Dict]:
 
 
 def generate_hierarchy() -> List[Dict]:
+    """
+    Generate hierarchy - uses realistic finance domain structure.
+    For realistic structure, see app/engine/realistic_finance_data.py
+    """
+    # Try to use realistic finance data if available
+    try:
+        from app.engine.realistic_finance_data import generate_realistic_hierarchy
+        return generate_realistic_hierarchy()
+    except ImportError:
+        # Fallback to original generic structure
+        pass
+    
+    # Original generic hierarchy (fallback)
     """
     Generate a ragged hierarchy with 50 leaf nodes.
     Hierarchy structure varies in depth (2-5 levels).
@@ -349,13 +372,21 @@ def generate_and_load_mock_data(session: Session, clear_existing: bool = True) -
     """
     print("Generating mock data...")
     
-    # Generate data
-    facts = generate_fact_rows(1000)
+    # Generate hierarchy first (needed for fact row mapping to cost centers)
     hierarchy = generate_hierarchy()
+    
+    # Generate facts mapped to hierarchy cost centers
+    facts = generate_fact_rows(1000, hierarchy)
     
     # Load to database
     print("Loading fact data...")
     fact_count = load_facts_to_db(session, facts, clear_existing)
+    
+    # Clear hierarchy_bridge first (before hierarchy) to avoid FK constraint issues
+    if clear_existing:
+        from app.models import HierarchyBridge
+        session.query(HierarchyBridge).delete()
+        session.commit()
     
     print("Loading hierarchy data...")
     hierarchy_count = load_hierarchy_to_db(session, hierarchy, clear_existing)
@@ -364,8 +395,8 @@ def generate_and_load_mock_data(session: Session, clear_existing: bool = True) -
     print("Generating hierarchy bridge (parent-to-leaf mappings)...")
     structure_id = hierarchy[0]['atlas_source'] if hierarchy else "MOCK_ATLAS_v1"
     bridge_entries = generate_hierarchy_bridge(hierarchy, structure_id)
-    bridge_count = load_hierarchy_bridge_to_db(session, bridge_entries, clear_existing)
-    print(f"✓ Generated {bridge_count} parent-to-leaf mappings")
+    bridge_count = load_hierarchy_bridge_to_db(session, bridge_entries, False)  # Don't clear again
+    print(f"[OK] Generated {bridge_count} parent-to-leaf mappings")
     
     # Calculate summary statistics
     leaf_nodes = [h for h in hierarchy if h['is_leaf']]

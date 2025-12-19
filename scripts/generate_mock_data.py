@@ -56,7 +56,7 @@ def main():
         validation = validate_mock_data(session)
         
         for check_name, check_result in validation['checks'].items():
-            status = "✓ PASS" if check_result.get('passed', False) else "✗ FAIL"
+            status = "[OK] PASS" if check_result.get('passed', False) else "[FAIL] FAIL"
             print(f"\n{status} - {check_name}")
             if 'expected' in check_result:
                 print(f"  Expected: {check_result['expected']}")
@@ -67,12 +67,12 @@ def main():
         
         if validation['passed']:
             print("\n" + "=" * 60)
-            print("✓ All validation checks passed!")
+            print("[OK] All validation checks passed!")
             print("=" * 60)
             return 0
         else:
             print("\n" + "=" * 60)
-            print("✗ Some validation checks failed!")
+            print("[FAIL] Some validation checks failed!")
             print("=" * 60)
             return 1
             
