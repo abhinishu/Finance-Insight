@@ -5,7 +5,7 @@ FastAPI main application for Finance-Insight
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import discovery
+from app.api.routes import discovery, use_cases
 
 # Create FastAPI app
 app = FastAPI(
@@ -25,6 +25,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(discovery.router)
+app.include_router(use_cases.router)
 
 
 @app.get("/")

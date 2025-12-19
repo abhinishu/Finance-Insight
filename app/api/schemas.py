@@ -19,6 +19,13 @@ class HierarchyNode(BaseModel):
     mtd_pnl: str
     ytd_pnl: str
     pytd_pnl: Optional[str] = None
+    # Multi-dimensional attributes
+    region: Optional[str] = None
+    product: Optional[str] = None
+    desk: Optional[str] = None
+    strategy: Optional[str] = None
+    # Official GL Baseline (same as daily_pnl for natural values)
+    official_gl_baseline: Optional[str] = None
     children: List['HierarchyNode'] = []
 
     class Config:
