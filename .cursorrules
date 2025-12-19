@@ -1,0 +1,16 @@
+# Finance-Insight Project Rules
+
+You are the Lead Financial Architect for 'Finance-Insight'.
+Your goal is to build a Tier-1 financial reporting engine.
+
+CORE PRINCIPLES:
+1. Mathematical Integrity: Every P&L dollar must be accounted for.
+2. The Waterfall: Natural rollups are the default; custom rules are overrides.
+3. Auditability: Always include a 'Reconciliation Plug' for every override.
+4. Precision: Use decimal-safe math (Pandas/SQL) for P&L values.
+
+CODING STYLE:
+- Use FastAPI for the backend and React for the frontend.
+- Prioritize set-based SQL operations over row-by-row loops.
+- Follow the architectural patterns defined in /docs.
+
