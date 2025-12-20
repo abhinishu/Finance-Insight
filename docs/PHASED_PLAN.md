@@ -105,46 +105,61 @@
   - Store imported hierarchies in database
 - **Deliverable**: Mock Atlas integration (replaceable with real API later)
 
-## Phase 4: Frontend (React)
+## Phase 4: Frontend (React) - 4-Tab Self-Service Model
 
 ### Step 4.1: Project Setup & Base Components
 - **Task**: Set up React project with TypeScript
   - Initialize React app (Vite recommended)
   - Set up routing (React Router)
   - Set up state management (React Query/Zustand)
-  - Create base layout with tab navigation
-  - Set up AG-Grid
-- **Deliverable**: React app foundation
+  - Create base layout with 4-tab navigation
+  - Set up AG-Grid with tree data support
+  - Implement premium UX standards (sticky headers, custom scrollbars, density toggle)
+- **Deliverable**: React app foundation with executive command center UI
 
-### Step 4.2: Tab 1 - Use Case & Structure Management
-- **Task**: Build Tab 1 UI
-  - Use case creation form
-  - Use case list/grid
-  - Structure import interface (mock Atlas)
-  - Hierarchy tree viewer
-  - Clone use case functionality
-- **Deliverable**: Complete Tab 1 interface
+### Step 4.2: Tab 1 - Report Registration (Config)
+- **Task**: Build Tab 1 UI - Report Registration
+  - **Report Name**: Text input for report name
+  - **Atlas Structure Selection**: Dropdown/selector for available structures
+  - **Measure Selection**: Multi-select for measures (Daily, WTD, MTD, YTD, PYTD)
+  - **Dimension Selection**: Multi-select for dimensions to include
+  - **Save/Register Button**: Persist report configuration
+  - **Report List**: Display registered reports
+- **Deliverable**: Complete Report Registration interface
 
-### Step 4.3: Tab 2 - Business Rules Builder
-- **Task**: Build Tab 2 UI
+### Step 4.3: Tab 2 - Input Report (Discovery)
+- **Task**: Build Tab 2 UI - Interactive Discovery View
+  - **Chevron-based Tree Grid**: AG-Grid with tree data, chevron expansion icons
+  - **Default Expansion**: Level 3 expanded by default
+  - **Group Shading**: Subtle background tint (rgba(0,0,0,0.02)) for nested rows
+  - **Search Bar**: Real-time global filter at top of grid
+  - **Financial Formatting**: Negative values in Red with Parentheses - e.g., (1,234.56)
+  - **Monospaced Typography**: 'Roboto Mono' font for all numeric columns
+  - **Sticky Elements**: Sticky headers and sticky left 'Node Name' column
+  - **Custom Scrollbars**: Thin-track CSS scrollbars that appear on hover
+  - **Density Toggle**: 'Comfortable' vs. 'Compact' view
+  - **Columns**: Node Name, Region, Product, Desk, Strategy, Official GL Baseline, Daily, MTD, YTD
+- **Deliverable**: Premium discovery interface with "WOW" UX
+
+### Step 4.4: Tab 3 - Business Rules
+- **Task**: Build Tab 3 UI - Business Rules Builder
   - Rule creation form (standard mode)
   - GenAI rule builder (natural language input)
   - Rule list/grid
   - Rule preview modal
   - Rule edit/delete functionality
   - Visual indicators for nodes with rules
-- **Deliverable**: Complete Tab 2 interface
+- **Deliverable**: Complete Business Rules interface
 
-### Step 4.4: Tab 3 - Results Visualization
-- **Task**: Build Tab 3 UI
-  - AG-Grid Tree Data setup
-  - Columns: Node Name, Daily, MTD, YTD, Recon Plug
-  - Color coding: Blue for rule-impacted, Red for plugs
-  - Row click drill-down (show rule details)
-  - Export to CSV/Excel
-  - Version history selector
-  - Calculate button
-- **Deliverable**: Complete Tab 3 interface
+### Step 4.5: Tab 4 - Final Report
+- **Task**: Build Tab 4 UI - Final Report with Reconciliation
+  - **Side-by-Side View**: Natural vs. Custom values
+  - **Recon Plugs**: Display reconciliation plugs for each node
+  - **AG-Grid Tree Data**: Same premium UX as Tab 2
+  - **Color Coding**: Blue for rule-impacted, Red for plugs
+  - **Export**: CSV/Excel export functionality
+  - **Version History**: Selector for different calculation runs
+- **Deliverable**: Complete Final Report interface with reconciliation
 
 ### Step 4.5: Integration & Polish
 - **Task**: Connect frontend to backend APIs
@@ -207,10 +222,10 @@
 
 ## Key Milestones
 
-1. **Milestone 1**: Core engine working with mock data (End of Phase 1)
+1. **Milestone 1**: Core engine working with mock data + Premium Discovery UX (End of Phase 1)
 2. **Milestone 2**: GenAI rule builder functional (End of Phase 2)
 3. **Milestone 3**: Full backend API complete (End of Phase 3)
-4. **Milestone 4**: Complete UI with all three tabs (End of Phase 4)
+4. **Milestone 4**: Complete UI with all 4 tabs - Executive Command Center (End of Phase 4)
 5. **Milestone 5**: Production-ready system (End of Phase 6)
 
 ## Immediate Next Steps (Priority Order)

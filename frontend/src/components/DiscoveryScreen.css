@@ -1,15 +1,25 @@
+/* Import Roboto Mono font */
+@import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500;700&display=swap');
+
 .discovery-screen {
   width: 100%;
-  max-width: 1400px;
+  max-width: 1600px;
   margin: 0 auto;
+  padding: 1.5rem;
+  background: #f5f5f5;
 }
 
 .discovery-controls {
   background: white;
-  padding: 1rem;
-  border-radius: 4px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  padding: 1rem 1.5rem;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   margin-bottom: 1rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
 }
 
 .control-group {
@@ -20,32 +30,108 @@
 
 .control-group label {
   font-weight: 500;
+  color: #2c3e50;
+  white-space: nowrap;
 }
 
-.control-group select {
-  padding: 0.5rem;
+.report-select,
+.structure-select {
+  padding: 0.5rem 1rem;
   border: 1px solid #ddd;
   border-radius: 4px;
   font-size: 1rem;
+  min-width: 250px;
 }
 
-.control-group button {
-  padding: 0.5rem 1rem;
-  background-color: #2c3e50;
+.refresh-button {
+  padding: 0.5rem 1.5rem;
+  background-color: #3498db;
   color: white;
   border: none;
   border-radius: 4px;
   cursor: pointer;
   font-size: 1rem;
+  transition: background-color 0.2s;
 }
 
-.control-group button:hover:not(:disabled) {
-  background-color: #34495e;
+.refresh-button:hover:not(:disabled) {
+  background-color: #2980b9;
 }
 
-.control-group button:disabled {
+.refresh-button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.control-group-right {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.search-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.search-input {
+  padding: 0.5rem 2.5rem 0.5rem 1rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 1rem;
+  width: 250px;
+  transition: border-color 0.2s;
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: #3498db;
+}
+
+.clear-search {
+  position: absolute;
+  right: 0.5rem;
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  color: #999;
+  cursor: pointer;
+  padding: 0;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.clear-search:hover {
+  color: #333;
+}
+
+.density-toggle {
+  display: flex;
+  align-items: center;
+}
+
+.density-button {
+  padding: 0.5rem 1rem;
+  background-color: #ecf0f1;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 1.2rem;
+  transition: all 0.2s;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.density-button:hover {
+  background-color: #d5dbdb;
 }
 
 .error-message {
@@ -57,62 +143,349 @@
   border: 1px solid #fcc;
 }
 
-.discovery-grid {
+.discovery-grid-container {
   background: white;
   padding: 1rem;
-  border-radius: 4px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-  margin-bottom: 1rem;
-}
-
-.discovery-info {
-  background: #e8f4f8;
-  padding: 1rem;
-  border-radius: 4px;
-  border-left: 4px solid #3498db;
-}
-
-.discovery-info p {
-  margin: 0.5rem 0;
-  color: #2c3e50;
-}
-
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: rgba(0, 0, 0, 0.5);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 1000;
-}
-
-.modal-content {
-  background: white;
-  padding: 2rem;
   border-radius: 8px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  min-width: 400px;
-  max-width: 500px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  position: relative;
 }
 
-.modal-content h3 {
-  margin-top: 0;
-  margin-bottom: 1.5rem;
-  color: #2c3e50;
+.discovery-grid {
+  width: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
 }
 
-.form-group {
-  margin-bottom: 1rem;
+/* Monospaced font for numeric columns */
+.monospace-number {
+  font-family: 'Roboto Mono', 'Courier New', monospace;
+  font-size: 0.95rem;
+  letter-spacing: 0.02em;
 }
 
-.form-group label {
-  display: block;
-  margin-bottom: 0.5rem;
+/* Red negative values */
+.negative-value {
+  color: #c33 !important;
+  font-weight: 500;
+}
+
+/* Custom thin scrollbars - hover only */
+.discovery-grid-container ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.discovery-grid-container:hover ::-webkit-scrollbar {
+  opacity: 1;
+}
+
+.discovery-grid-container ::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+.discovery-grid-container ::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+
+.discovery-grid-container ::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+/* Firefox scrollbar */
+.discovery-grid-container {
+  scrollbar-width: thin;
+  scrollbar-color: #c1c1c1 #f1f1f1;
+}
+
+/* Sticky header styling */
+.discovery-grid .ag-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: white;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Sticky left column styling */
+.discovery-grid .ag-pinned-left-cols-container {
+  position: sticky;
+  left: 0;
+  z-index: 5;
+  background: white;
+  box-shadow: 2px 0 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Group shading for nested rows */
+.discovery-grid .ag-row {
+  transition: background-color 0.1s;
+}
+
+/* Density adjustments */
+.discovery-screen.comfortable .discovery-grid {
+  --ag-row-height: 40px;
+}
+
+.discovery-screen.compact .discovery-grid {
+  --ag-row-height: 32px;
+}
+
+/* AG-Grid theme overrides for premium look */
+.discovery-grid .ag-theme-alpine {
+  --ag-header-background-color: #f8f9fa;
+  --ag-header-foreground-color: #2c3e50;
+  --ag-border-color: #e0e0e0;
+  --ag-row-hover-color: #f0f8ff;
+  --ag-selected-row-background-color: #e3f2fd;
+}
+
+/* Manual Tree Styling */
+.discovery-grid .ag-cell {
+  border-left: none !important;
+}
+
+/* Level-based row styling */
+.discovery-grid .ag-row[data-depth="0"] {
+  background-color: #f0f4f8 !important;
+  font-weight: 600;
+}
+
+.discovery-grid .ag-row[data-depth="1"] {
+  background-color: #f9f9f9 !important;
+  font-weight: 500;
+}
+
+/* Connected lines effect */
+.discovery-grid .ag-cell-wrapper {
+  position: relative;
+}
+
+/* Chevron styling */
+.discovery-grid .tree-chevron {
+  cursor: pointer;
+  user-select: none;
+  font-size: 12px;
+  color: #3498db;
+  margin-right: 4px;
+  transition: transform 0.2s;
+}
+
+.discovery-grid .tree-chevron:hover {
+  color: #2980b9;
+}
+
+.discovery-grid .tree-leaf-indicator {
+  margin-right: 8px;
+  color: #999;
+  font-size: 10px;
+}
+
+/* Power BI Style Tree Connectors - Enhanced */
+.ag-theme-alpine .ag-row-group-indent-1, 
+.ag-theme-alpine .ag-row-group-indent-2,
+.ag-theme-alpine .ag-row-group-indent-3,
+.ag-theme-alpine .ag-row-group-indent-4 {
+    position: relative;
+}
+
+/* Indentation: 20px per level */
+.ag-theme-alpine .ag-row-group-indent-1 {
+    padding-left: 20px !important;
+}
+
+.ag-theme-alpine .ag-row-group-indent-2 {
+    padding-left: 40px !important;
+}
+
+.ag-theme-alpine .ag-row-group-indent-3 {
+    padding-left: 60px !important;
+}
+
+.ag-theme-alpine .ag-row-group-indent-4 {
+    padding-left: 80px !important;
+}
+
+/* Vertical line connector */
+.ag-theme-alpine .ag-group-child-count::before {
+    content: "";
+    position: absolute;
+    left: -12px;
+    top: -15px;
+    bottom: 15px;
+    border-left: 1px solid #ccc;
+    z-index: 1;
+}
+
+/* Horizontal line connector (The ├─ symbol) */
+.ag-theme-alpine .ag-group-expanded::after,
+.ag-theme-alpine .ag-group-contracted::after {
+    content: "";
+    position: absolute;
+    left: -12px;
+    top: 15px;
+    width: 10px;
+    border-top: 1px solid #ccc;
+    z-index: 1;
+}
+
+/* Chevron icon styling for parent nodes */
+.ag-theme-alpine .ag-group-expanded .ag-icon-tree-closed,
+.ag-theme-alpine .ag-group-contracted .ag-icon-tree-open {
+    color: #3498db;
+    font-size: 14px;
+    margin-right: 4px;
+}
+
+/* Highlight the Active Node path */
+.ag-row-selected {
+    background-color: rgba(0, 102, 204, 0.05) !important;
+}
+
+/* Group Shading for better hierarchy perception */
+.ag-row-group {
+    background-color: #f9f9f9 !important;
+    font-weight: 600;
+}
+
+/* Bold parent nodes */
+.ag-theme-alpine .ag-row-group {
+    font-weight: 600;
+}
+
+/* Breadcrumb Trail */
+.breadcrumb-container {
+  background: white;
+  padding: 0.75rem 1.5rem;
+  border-bottom: 1px solid #e0e0e0;
+  margin-bottom: 0;
+}
+
+.breadcrumb-trail {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  color: #666;
+}
+
+.breadcrumb-item {
   font-weight: 500;
   color: #2c3e50;
 }
 
+.breadcrumb-separator {
+  color: #999;
+  font-weight: 300;
+}
+
+/* Reconciliation Status Bar */
+.reconciliation-status-bar {
+  position: sticky;
+  bottom: 0;
+  background: white;
+  border-top: 2px solid #e0e0e0;
+  padding: 1rem 1.5rem;
+  margin-top: 0;
+  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.1);
+  z-index: 10;
+}
+
+.reconciliation-status-bar.balanced {
+  border-top-color: #27ae60;
+  background: #f0fdf4;
+}
+
+.reconciliation-status-bar.unbalanced {
+  border-top-color: #e74c3c;
+  background: #fef2f2;
+}
+
+.status-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.status-icon {
+  font-size: 1.2rem;
+}
+
+.status-text {
+  color: #2c3e50;
+}
+
+.reconciliation-details {
+  display: flex;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.recon-measure {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.measure-label {
+  font-weight: 600;
+  color: #555;
+  min-width: 40px;
+}
+
+.measure-value {
+  color: #2c3e50;
+  font-family: 'Roboto Mono', monospace;
+}
+
+.measure-separator {
+  color: #999;
+  margin: 0 0.25rem;
+}
+
+.measure-diff {
+  color: #666;
+  font-size: 0.8rem;
+  font-family: 'Roboto Mono', monospace;
+}
+
+.reconciliation-status-bar.balanced .measure-diff {
+  color: #27ae60;
+}
+
+.reconciliation-status-bar.unbalanced .measure-diff {
+  color: #e74c3c;
+  font-weight: 500;
+}
+
+/* Responsive adjustments */
+@media (max-width: 1200px) {
+  .discovery-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .control-group,
+  .control-group-right {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .search-input {
+    width: 100%;
+  }
+}

@@ -26,6 +26,8 @@ class HierarchyNode(BaseModel):
     strategy: Optional[str] = None
     # Official GL Baseline (same as daily_pnl for natural values)
     official_gl_baseline: Optional[str] = None
+    # Path array for AG-Grid tree data (e.g., ["Global Trading P&L", "Americas", "Cash Equities"])
+    path: Optional[List[str]] = None
     children: List['HierarchyNode'] = []
 
     class Config:
@@ -49,10 +51,17 @@ class HierarchyNode(BaseModel):
 HierarchyNode.model_rebuild()
 
 
+class ReconciliationData(BaseModel):
+    """Reconciliation totals for baseline validation."""
+    fact_table_sum: dict
+    leaf_nodes_sum: dict
+
+
 class DiscoveryResponse(BaseModel):
     """Response for discovery endpoint."""
     structure_id: str
     hierarchy: List[HierarchyNode]
+    reconciliation: Optional[ReconciliationData] = None
 
     class Config:
         json_schema_extra = {
@@ -70,7 +79,11 @@ class DiscoveryResponse(BaseModel):
                         "ytd_pnl": "123456789.01",
                         "children": []
                     }
-                ]
+                ],
+                "reconciliation": {
+                    "fact_table_sum": {"daily": "1234567.89", "mtd": "12345678.90", "ytd": "123456789.01"},
+                    "leaf_nodes_sum": {"daily": "1234567.89", "mtd": "12345678.90", "ytd": "123456789.01"}
+                }
             }
         }
 
