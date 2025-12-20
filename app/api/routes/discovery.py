@@ -5,12 +5,13 @@ Provides hierarchy with natural values for discovery view.
 
 from typing import Dict, List
 from uuid import UUID
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_db
-from app.api.schemas import DiscoveryResponse, HierarchyNode
+from app.api.schemas import DiscoveryResponse, HierarchyNode, ReconciliationData
 from app.engine.waterfall import calculate_natural_rollup, load_facts, load_hierarchy
 from app.models import UseCase
 
@@ -55,10 +56,12 @@ def build_tree_structure(
     natural_results: Dict,
     node_id: str,
     include_pytd: bool = False,
-    parent_attributes: Dict = None
+    parent_attributes: Dict = None,
+    path_dict: Dict = None
 ) -> HierarchyNode:
     """
-    Recursively build tree structure from hierarchy with multi-dimensional attributes.
+    Recursively build tree structure from hierarchy with multi-dimensional attributes and path array.
+    Uses path_dict from SQL CTE for accurate path arrays.
     
     Args:
         hierarchy_dict: Dictionary mapping node_id -> node data
@@ -67,9 +70,10 @@ def build_tree_structure(
         node_id: Current node ID
         include_pytd: Whether to include PYTD measure
         parent_attributes: Attributes from parent node (for inheritance)
+        path_dict: Dictionary mapping node_id -> path array from SQL CTE
     
     Returns:
-        HierarchyNode with children and attributes
+        HierarchyNode with children, attributes, and path array
     """
     from app.engine.finance_hierarchy import get_node_attributes
     
@@ -81,18 +85,30 @@ def build_tree_structure(
         'pytd': 0
     })
     
+    # Get path from CTE result (uses node_name, not node_id)
+    # Path format: ["Global Trading P&L", "Americas", "Cash Equities", ...]
+    if path_dict:
+        # Try both string and direct lookup
+        current_path = path_dict.get(node_id) or path_dict.get(str(node_id))
+        if not current_path:
+            # Fallback: build path from node_name
+            current_path = [node.node_name]
+    else:
+        # Fallback: build path from node_name
+        current_path = [node.node_name]
+    
     # Extract attributes for this node
     attrs = get_node_attributes(node.node_id, node.node_name, parent_attributes)
     
-    # Build children recursively (pass attributes for inheritance)
+    # Build children recursively (pass attributes and path_dict for inheritance)
     children = []
     for child_id in children_dict.get(node_id, []):
         child_node = build_tree_structure(
-            hierarchy_dict, children_dict, natural_results, child_id, include_pytd, attrs
+            hierarchy_dict, children_dict, natural_results, child_id, include_pytd, attrs, path_dict
         )
         children.append(child_node)
     
-    # Create node with attributes
+    # Create node with attributes and path
     node_data = {
         'node_id': node.node_id,
         'node_name': node.node_name,
@@ -107,6 +123,7 @@ def build_tree_structure(
         'desk': attrs.get('desk'),
         'strategy': attrs.get('strategy'),
         'official_gl_baseline': str(measures['daily']),  # Same as daily_pnl for natural values
+        'path': current_path,  # Path array from SQL CTE for AG-Grid tree data
         'children': children,
     }
     
@@ -136,6 +153,7 @@ def get_discovery_view(
         DiscoveryResponse with hierarchy tree and natural values
     """
     from app.models import DimHierarchy
+    from sqlalchemy import text
     
     # Load hierarchy by structure_id
     hierarchy_nodes = db.query(DimHierarchy).filter(
@@ -147,6 +165,50 @@ def get_discovery_view(
             status_code=404,
             detail=f"No hierarchy found for structure_id: {structure_id}"
         )
+    
+    # Build path arrays using SQL CTE (recursive)
+    # This creates a path array for each node: ["Global Trading P&L", "Americas", "Cash Equities", ...]
+    try:
+        path_query = text("""
+            WITH RECURSIVE node_paths AS (
+                -- Base case: root nodes
+                SELECT 
+                    node_id,
+                    node_name,
+                    ARRAY[node_name]::text[] as path
+                FROM dim_hierarchy
+                WHERE atlas_source = :structure_id AND parent_node_id IS NULL
+                
+                UNION ALL
+                
+                -- Recursive case: children
+                SELECT 
+                    h.node_id,
+                    h.node_name,
+                    np.path || h.node_name
+                FROM dim_hierarchy h
+                INNER JOIN node_paths np ON h.parent_node_id = np.node_id
+                WHERE h.atlas_source = :structure_id
+            )
+            SELECT node_id, path FROM node_paths
+        """)
+        
+        path_results = db.execute(path_query, {"structure_id": structure_id}).fetchall()
+        # Build path_dict: key is node_id (string), value is path array of node_names
+        path_dict = {}
+        for row in path_results:
+            node_id_key = str(row[0])  # node_id as string key
+            path_array = list(row[1]) if row[1] else []  # Path array of node_names
+            path_dict[node_id_key] = path_array
+        
+        # Debug: Log first 5 paths to verify they use node_name, not node_id
+        print(f"=== Path CTE Verification (first 5) ===")
+        for i, (node_id_key, path_array) in enumerate(list(path_dict.items())[:5]):
+            print(f"  {i+1}. node_id={node_id_key}, path={path_array}")
+    except Exception as e:
+        # Fallback: build paths recursively in Python if CTE fails
+        print(f"CTE path building failed, using Python fallback: {e}")
+        path_dict = {}
     
     # Build hierarchy dictionaries
     hierarchy_dict = {node.node_id: node for node in hierarchy_nodes}
@@ -179,13 +241,61 @@ def get_discovery_view(
         hierarchy_dict, children_dict, leaf_nodes, facts_df
     )
     
-    # Build tree structure starting from root (with attributes)
+    # Build tree structure starting from root (with attributes and path from CTE)
     root_node = build_tree_structure(
-        hierarchy_dict, children_dict, natural_results, root_id, include_pytd=False, parent_attributes=None
+        hierarchy_dict, children_dict, natural_results, root_id, include_pytd=False, parent_attributes=None, path_dict=path_dict
     )
     
+    # Calculate reconciliation totals: sum of leaf nodes vs fact table sum
+    # Wrap in try-except to make it optional if it fails
+    reconciliation_data = None
+    try:
+        from sqlalchemy import func
+        from app.models import FactPnlGold
+        
+        # Sum of all facts in fact_pnl_gold
+        fact_totals = db.query(
+            func.sum(FactPnlGold.daily_pnl).label('daily_total'),
+            func.sum(FactPnlGold.mtd_pnl).label('mtd_total'),
+            func.sum(FactPnlGold.ytd_pnl).label('ytd_total')
+        ).first()
+        
+        # Sum of leaf nodes from natural results
+        leaf_totals = {
+            'daily': Decimal('0'),
+            'mtd': Decimal('0'),
+            'ytd': Decimal('0')
+        }
+        for node_id in leaf_nodes:
+            if node_id in natural_results:
+                leaf_totals['daily'] += Decimal(str(natural_results[node_id].get('daily', 0)))
+                leaf_totals['mtd'] += Decimal(str(natural_results[node_id].get('mtd', 0)))
+                leaf_totals['ytd'] += Decimal(str(natural_results[node_id].get('ytd', 0)))
+        
+        # Build reconciliation data
+        reconciliation_data = ReconciliationData(
+            fact_table_sum={
+                'daily': str(fact_totals.daily_total or 0),
+                'mtd': str(fact_totals.mtd_total or 0),
+                'ytd': str(fact_totals.ytd_total or 0)
+            },
+            leaf_nodes_sum={
+                'daily': str(leaf_totals['daily']),
+                'mtd': str(leaf_totals['mtd']),
+                'ytd': str(leaf_totals['ytd'])
+            }
+        )
+    except Exception as e:
+        # Log error but don't fail the request
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning(f"Failed to calculate reconciliation data: {e}")
+        reconciliation_data = None
+    
+    # Build response with optional reconciliation data
     return DiscoveryResponse(
         structure_id=structure_id,
-        hierarchy=[root_node]
+        hierarchy=[root_node],
+        reconciliation=reconciliation_data
     )
 

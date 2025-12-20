@@ -1,3 +1,4 @@
+// Note: Using manual tree implementation - no Enterprise required
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.tsx'

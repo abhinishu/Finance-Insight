@@ -8,11 +8,12 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "ag-grid-react": "^31.0.0",
     "ag-grid-community": "^31.0.0",
-    "axios": "^1.6.0"
+    "ag-grid-enterprise": "^31.3.4",
+    "ag-grid-react": "^31.0.0",
+    "axios": "^1.6.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
   },
   "devDependencies": {
     "@types/react": "^18.2.0",
@@ -22,4 +23,3 @@
     "vite": "^5.0.0"
   }
 }
-

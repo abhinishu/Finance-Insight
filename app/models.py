@@ -218,3 +218,24 @@ class FactCalculatedResult(Base):
     def __repr__(self):
         return f"<FactCalculatedResult(id={self.result_id}, run={self.run_id}, node='{self.node_id}', override={self.is_override})>"
 
+
+class ReportRegistration(Base):
+    """
+    Report Registration table - stores report configurations.
+    Links report name to Atlas structure and selected measures/dimensions.
+    """
+    __tablename__ = "report_registrations"
+
+    report_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    report_name = Column(String(200), nullable=False)
+    atlas_structure_id = Column(String(200), nullable=False)  # References dim_hierarchy.atlas_source
+    selected_measures = Column(JSONB, nullable=False)  # Array: ["daily", "mtd", "ytd"]
+    selected_dimensions = Column(JSONB, nullable=True)  # Array: ["region", "product", "desk"]
+    measure_scopes = Column(JSONB, nullable=True)  # {"daily": ["input", "rule", "output"], ...}
+    dimension_scopes = Column(JSONB, nullable=True)  # {"region": ["input", "rule", "output"], ...}
+    owner_id = Column(String(100), nullable=False, default="default_user")
+    created_at = Column(TIMESTAMP, server_default=func.now(), nullable=False)
+    updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    def __repr__(self):
+        return f"<ReportRegistration(id={self.report_id}, name='{self.report_name}')>"

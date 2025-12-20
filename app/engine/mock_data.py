@@ -78,16 +78,22 @@ def generate_fact_rows(count: int = 1000, hierarchy: List[Dict] = None) -> List[
 
 def generate_hierarchy() -> List[Dict]:
     """
-    Generate hierarchy - uses realistic finance domain structure.
-    For realistic structure, see app/engine/realistic_finance_data.py
+    Generate hierarchy - uses POC finance domain structure (15-20 nodes).
+    Structure: ROOT -> AMER -> CASH_EQUITIES -> HIGH_TOUCH -> [Desks]
+    For POC structure, see app/engine/poc_finance_data.py
     """
-    # Try to use realistic finance data if available
+    # Use POC finance data generator (15-20 nodes)
     try:
-        from app.engine.realistic_finance_data import generate_realistic_hierarchy
-        return generate_realistic_hierarchy()
+        from app.engine.poc_finance_data import generate_poc_hierarchy
+        return generate_poc_hierarchy()
     except ImportError:
-        # Fallback to original generic structure
-        pass
+        # Fallback to realistic finance data generator
+        try:
+            from app.engine.realistic_finance_data import generate_realistic_hierarchy
+            return generate_realistic_hierarchy()
+        except ImportError:
+            # Fallback to original generic structure
+            pass
     
     # Original generic hierarchy (fallback)
     """
@@ -376,7 +382,12 @@ def generate_and_load_mock_data(session: Session, clear_existing: bool = True) -
     hierarchy = generate_hierarchy()
     
     # Generate facts mapped to hierarchy cost centers
-    facts = generate_fact_rows(1000, hierarchy)
+    # Use POC fact generator if available
+    try:
+        from app.engine.poc_finance_data import generate_poc_fact_rows
+        facts = generate_poc_fact_rows(1000, hierarchy)
+    except ImportError:
+        facts = generate_fact_rows(1000, hierarchy)
     
     # Load to database
     print("Loading fact data...")
