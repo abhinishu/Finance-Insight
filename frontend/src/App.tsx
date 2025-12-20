@@ -1,6 +1,8 @@
 import React, { useState } from 'react'
 import ReportRegistrationScreen from './components/ReportRegistrationScreen'
 import DiscoveryScreen from './components/DiscoveryScreen'
+import RuleEditor from './components/RuleEditor'
+import ExecutiveDashboard from './components/ExecutiveDashboard'
 import './App.css'
 
 function App() {
@@ -29,34 +31,22 @@ function App() {
         <button
           className={`tab-button ${activeTab === 'rules' ? 'active' : ''}`}
           onClick={() => setActiveTab('rules')}
-          disabled
         >
           Tab 3: Business Rules
         </button>
         <button
           className={`tab-button ${activeTab === 'final' ? 'active' : ''}`}
           onClick={() => setActiveTab('final')}
-          disabled
         >
-          Tab 4: Final Report
+          Tab 4: Executive View
         </button>
       </nav>
 
       <main className="app-main">
         {activeTab === 'registration' && <ReportRegistrationScreen />}
         {activeTab === 'discovery' && <DiscoveryScreen />}
-        {activeTab === 'rules' && (
-          <div className="coming-soon">
-            <h2>Tab 3: Business Rules</h2>
-            <p>Coming soon - Define and preview GenAI logic overlays</p>
-          </div>
-        )}
-        {activeTab === 'final' && (
-          <div className="coming-soon">
-            <h2>Tab 4: Final Report</h2>
-            <p>Coming soon - Side-by-side reconciliation (Natural vs. Custom) with Recon Plugs</p>
-          </div>
-        )}
+        {activeTab === 'rules' && <RuleEditor />}
+        {activeTab === 'final' && <ExecutiveDashboard />}
       </main>
     </div>
   )

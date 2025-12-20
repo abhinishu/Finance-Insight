@@ -27,26 +27,35 @@ def list_structures(db: Session = Depends(get_db)):
     """
     from app.models import DimHierarchy
     from sqlalchemy import func
+    import logging
     
-    # Get distinct structures with counts
+    logger = logging.getLogger(__name__)
+    
+    # Get distinct structures with counts (filter out NULL atlas_source)
     structures = db.query(
         DimHierarchy.atlas_source,
         func.count(DimHierarchy.node_id).label('node_count')
+    ).filter(
+        DimHierarchy.atlas_source.isnot(None)  # Filter out NULL structures
     ).group_by(DimHierarchy.atlas_source).all()
+    
+    logger.info(f"Structures: Found {len(structures)} structures in database")
     
     result = []
     for structure_id, node_count in structures:
-        # Generate friendly name from structure_id
-        name = structure_id.replace('_', ' ').title()
-        if structure_id.startswith('MOCK_ATLAS'):
-            name = f"Mock Atlas Structure {structure_id.split('_')[-1]}"
-        
-        result.append({
-            "structure_id": structure_id,
-            "name": name,
-            "node_count": node_count
-        })
+        if structure_id:  # Additional safety check
+            # Generate friendly name from structure_id
+            name = structure_id.replace('_', ' ').title()
+            if structure_id.startswith('MOCK_ATLAS'):
+                name = f"Mock Atlas Structure {structure_id.split('_')[-1]}"
+            
+            result.append({
+                "structure_id": structure_id,
+                "name": name,
+                "node_count": node_count
+            })
     
+    logger.info(f"Structures: Returning {len(result)} valid structures")
     return {"structures": result}
 
 
@@ -155,12 +164,17 @@ def get_discovery_view(
     from app.models import DimHierarchy
     from sqlalchemy import text
     
-    # Load hierarchy by structure_id
+    # Load hierarchy by structure_id (NO JOIN with rules - pure Phase 1 functionality)
     hierarchy_nodes = db.query(DimHierarchy).filter(
         DimHierarchy.atlas_source == structure_id
     ).all()
     
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"Discovery: Loaded {len(hierarchy_nodes)} nodes for structure_id: {structure_id}")
+    
     if not hierarchy_nodes:
+        logger.warning(f"Discovery: No hierarchy found for structure_id: {structure_id}")
         raise HTTPException(
             status_code=404,
             detail=f"No hierarchy found for structure_id: {structure_id}"
@@ -293,9 +307,12 @@ def get_discovery_view(
         reconciliation_data = None
     
     # Build response with optional reconciliation data
-    return DiscoveryResponse(
+    logger.info(f"Discovery: Returning hierarchy with {len([root_node])} root node(s)")
+    response = DiscoveryResponse(
         structure_id=structure_id,
         hierarchy=[root_node],
         reconciliation=reconciliation_data
     )
+    logger.info(f"Discovery: Response built successfully, hierarchy has {len(response.hierarchy)} root nodes")
+    return response
 

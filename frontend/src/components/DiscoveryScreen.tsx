@@ -157,25 +157,46 @@ const DiscoveryScreen: React.FC = () => {
   // Load available structures from API
   const loadStructures = useCallback(async () => {
     try {
+      console.log('Tab 2: Loading structures from:', `${API_BASE_URL}/api/v1/structures`)
       const response = await axios.get<{ structures: Structure[] }>(
         `${API_BASE_URL}/api/v1/structures`
       )
-      setAvailableStructures(response.data.structures)
+      console.log('Tab 2: Structures API response:', response.data)
+      const structures = response.data?.structures || []
+      console.log('Tab 2: Found', structures.length, 'structures')
+      setAvailableStructures(structures)
+      
+      // Auto-select first structure if none selected
+      if (structures.length > 0 && !structureId) {
+        const firstStructure = structures[0]
+        console.log('Tab 2: Auto-selecting first structure:', firstStructure.structure_id)
+        setStructureId(firstStructure.structure_id)
+      } else if (structures.length === 0) {
+        console.warn('Tab 2: No structures found')
+        setError('No structures available. Please ensure mock data has been generated.')
+      }
     } catch (err: any) {
-      console.error('Failed to load structures:', err)
-      setError('Failed to load available structures')
+      console.error('Tab 2: Failed to load structures:', err)
+      console.error('Tab 2: Error details:', err.response?.data || err.message)
+      setError(`Failed to load available structures: ${err.response?.data?.detail || err.message}`)
     }
-  }, [])
+  }, [structureId])
 
   // Load registered reports
   const loadReports = useCallback(async () => {
     try {
+      console.log('Tab 2: Loading reports from:', `${API_BASE_URL}/api/v1/reports`)
       const response = await axios.get<any[]>(
         `${API_BASE_URL}/api/v1/reports`
       )
-      setRegisteredReports(response.data)
+      console.log('Tab 2: Reports API response:', response.data)
+      const reports = response.data || []
+      console.log('Tab 2: Found', reports.length, 'reports')
+      setRegisteredReports(reports)
     } catch (err: any) {
-      console.error('Failed to load reports:', err)
+      console.error('Tab 2: Failed to load reports:', err)
+      console.error('Tab 2: Error details:', err.response?.data || err.message)
+      // Don't set error for reports - it's okay if there are no reports yet
     }
   }, [])
 
@@ -197,13 +218,28 @@ const DiscoveryScreen: React.FC = () => {
     setError(null)
     
     try {
+      console.log(`Tab 2: Loading discovery data for structure: ${structureId}`)
       const response = await axios.get<DiscoveryResponse>(
         `${API_BASE_URL}/api/v1/discovery`,
         { params: { structure_id: structureId } }
       )
       
+      // Debug: Log full API response
+      console.log('Tab 2: Full API Response:', response.data)
+      console.log('Tab 2: Hierarchy array length:', response.data?.hierarchy?.length || 0)
+      
+      // Ensure hierarchy exists, default to empty array
+      const hierarchy = response.data?.hierarchy || []
+      if (hierarchy.length === 0) {
+        console.warn('Tab 2: WARNING - Empty hierarchy array received from API')
+        setError('No hierarchy data found. Please ensure mock data has been generated.')
+        setRowData([])
+        setLoading(false)
+        return
+      }
+      
       // Convert nested hierarchy to flat structure with path arrays from SQL CTE
-      const flatData = flattenHierarchy(response.data.hierarchy)
+      const flatData = flattenHierarchy(hierarchy)
       
       // Store reconciliation data (optional)
       if (response.data && response.data.reconciliation) {
@@ -306,13 +342,18 @@ const DiscoveryScreen: React.FC = () => {
   }, [structureId, flattenHierarchy, gridApi])
 
   useEffect(() => {
+    console.log('Tab 2: Component mounted, loading structures and reports...')
     loadStructures()
     loadReports()
   }, [loadStructures, loadReports])
 
   useEffect(() => {
+    console.log('Tab 2: useEffect [structureId] triggered, structureId:', structureId)
     if (structureId) {
+      console.log('Tab 2: Calling loadDiscoveryData for structureId:', structureId)
       loadDiscoveryData()
+    } else {
+      console.warn('Tab 2: useEffect: structureId is empty, not loading discovery data')
     }
   }, [structureId, loadDiscoveryData])
 
