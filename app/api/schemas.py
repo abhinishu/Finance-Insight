@@ -273,6 +273,77 @@ class RuleGenAIRequest(BaseModel):
         }
 
 
+class BulkRuleCreateRequest(BaseModel):
+    """Request schema for bulk rule creation (batch save to multiple nodes)."""
+    node_ids: List[str] = Field(..., min_items=1, description="List of node IDs to apply the rule to")
+    last_modified_by: str = Field(..., min_length=1, description="User ID who created/modified the rule")
+    
+    # Manual mode: list of conditions
+    conditions: Optional[List[RuleCondition]] = Field(None, description="List of conditions for manual rule creation")
+    
+    # GenAI mode: natural language
+    logic_en: Optional[str] = Field(None, description="Natural language description")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "node_ids": ["AMER_CASH_NY", "EMEA_CASH_LDN"],
+                "last_modified_by": "user123",
+                "logic_en": "Exclude books B01 and B02"
+            }
+        }
+
+
+class BulkRuleDeleteRequest(BaseModel):
+    """Request schema for bulk rule deletion."""
+    node_ids: List[str] = Field(..., min_items=1, description="List of node IDs to delete rules from")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "node_ids": ["AMER_CASH_NY", "EMEA_CASH_LDN"]
+            }
+        }
+
+
+class BulkRuleResponse(BaseModel):
+    """Response schema for bulk operations."""
+    success_count: int = Field(..., description="Number of successful operations")
+    failed_count: int = Field(..., description="Number of failed operations")
+    errors: List[str] = Field(default_factory=list, description="List of error messages for failed operations")
+    created_rules: List[RuleResponse] = Field(default_factory=list, description="List of created/updated rules")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "success_count": 2,
+                "failed_count": 0,
+                "errors": [],
+                "created_rules": []
+            }
+        }
+
+
+class RuleStackResponse(BaseModel):
+    """Response schema for rule stack (direct + parent rules)."""
+    node_id: str
+    node_name: Optional[str] = None
+    direct_rule: Optional[RuleResponse] = Field(None, description="Direct rule for this node (editable)")
+    parent_rules: List[RuleResponse] = Field(default_factory=list, description="Parent rules from path (read-only)")
+    has_conflict: bool = Field(False, description="True if child rule overrides parent rule")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "node_id": "AMER_CASH_NY",
+                "node_name": "Americas Cash NY",
+                "direct_rule": None,
+                "parent_rules": [],
+                "has_conflict": False
+            }
+        }
+
+
 class RuleGenAIResponse(BaseModel):
     """Response schema for GenAI translation preview."""
     node_id: str

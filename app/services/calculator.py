@@ -151,7 +151,12 @@ def calculate_plugs(
 ) -> Dict[str, Dict[str, Decimal]]:
     """
     Stage 3: Calculate Reconciliation Plug for every node.
-    Plug = Natural_Value - Rule_Adjusted_Value
+    
+    GOLDEN EQUATION: Natural GL Baseline = Adjusted P&L + Reconciliation Plug
+    Therefore: Plug = Natural_Value - Adjusted_Value
+    
+    This ensures mathematical integrity: every P&L dollar is accounted for.
+    All calculations use Decimal precision to avoid rounding errors.
     
     Args:
         natural_results: Natural GL values (from bottom-up aggregation without rules)
@@ -266,19 +271,48 @@ def calculate_use_case(
             if rule.sql_where  # Only rules with SQL WHERE clause are active
         }
         
-        # Stage 1: Leaf Application
-        # Start with natural values, then override leaf nodes that have rules
+        # Stage 1: Rule Application with "Most Specific Wins" Policy
+        # Child rules override parent rules. Apply rules bottom-up, skipping parent
+        # rules if any child has a rule.
         adjusted_results = natural_results.copy()
         rules_applied = 0
         
-        for leaf_id in leaf_nodes:
-            if leaf_id in active_rules:
-                rule = active_rules[leaf_id]
-                # Apply rule to get rule-adjusted value
-                rule_adjusted = apply_rule_to_leaf(session, leaf_id, rule)
-                adjusted_results[leaf_id] = rule_adjusted
-                rules_applied += 1
-                logger.info(f"Applied rule {rule.rule_id} to leaf node {leaf_id}")
+        # Helper function to check if any descendant has a rule
+        def has_descendant_rule(node_id: str) -> bool:
+            """Check if any descendant (child, grandchild, etc.) has a rule."""
+            children = children_dict.get(node_id, [])
+            for child_id in children:
+                if child_id in active_rules:
+                    return True
+                if has_descendant_rule(child_id):
+                    return True
+            return False
+        
+        # Apply rules bottom-up (deepest first), but only if no descendant has a rule
+        # Process nodes by depth (deepest first)
+        for depth in range(max_depth, -1, -1):
+            for node_id, node in hierarchy_dict.items():
+                if node.depth == depth and node_id in active_rules:
+                    # Check if any descendant has a rule
+                    if not has_descendant_rule(node_id):
+                        # No descendant has a rule, so apply this rule
+                        rule = active_rules[node_id]
+                        
+                        if node.is_leaf:
+                            # For leaf nodes, apply rule directly
+                            rule_adjusted = apply_rule_to_leaf(session, node_id, rule)
+                            adjusted_results[node_id] = rule_adjusted
+                        else:
+                            # For non-leaf nodes, apply rule to get aggregated value
+                            # This executes the SQL WHERE clause against fact_pnl_gold
+                            rule_adjusted = apply_rule_to_leaf(session, node_id, rule)
+                            adjusted_results[node_id] = rule_adjusted
+                        
+                        rules_applied += 1
+                        logger.info(f"Applied rule {rule.rule_id} to node {node_id} (Most Specific Wins)")
+                    else:
+                        # Descendant has a rule, so skip this parent rule
+                        logger.info(f"Skipping rule for node {node_id} - descendant has more specific rule")
         
         # Stage 2: Waterfall Up
         # Perform bottom-up aggregation: parents sum rule-adjusted children

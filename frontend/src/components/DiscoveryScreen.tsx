@@ -71,22 +71,34 @@ const DiscoveryScreen: React.FC = () => {
   const [reconciliation, setReconciliation] = useState<ReconciliationData | null>(null) // Reconciliation data
   const gridRef = useRef<AgGridReact>(null)
   
+  // Shared tree state key (for Tab 2 & 3 unification)
+  const getTreeStateKey = (id: string) => `finance_insight_tree_state_${id}`
+  
   // Load persisted state from localStorage
   useEffect(() => {
     const savedReportId = localStorage.getItem('finance_insight_selected_report_id')
-    const savedExpandedNodes = localStorage.getItem('finance_insight_expanded_nodes')
     if (savedReportId) {
       setSelectedReportId(savedReportId)
     }
-    if (savedExpandedNodes) {
-      try {
-        const nodes = JSON.parse(savedExpandedNodes)
-        setExpandedNodes(new Set(nodes))
-      } catch (e) {
-        console.warn('Failed to load expanded nodes from localStorage:', e)
+  }, [])
+  
+  // Load shared tree state when structure changes (Tab 2 & 3 unification)
+  useEffect(() => {
+    if (structureId) {
+      const stateKey = getTreeStateKey(structureId)
+      const savedState = localStorage.getItem(stateKey)
+      if (savedState) {
+        try {
+          const state = JSON.parse(savedState)
+          if (state.expandedNodes) {
+            setExpandedNodes(new Set(state.expandedNodes))
+          }
+        } catch (e) {
+          console.warn('Failed to load shared tree state:', e)
+        }
       }
     }
-  }, [])
+  }, [structureId])
   
   // Persist selected report to localStorage
   useEffect(() => {
@@ -95,12 +107,17 @@ const DiscoveryScreen: React.FC = () => {
     }
   }, [selectedReportId])
   
-  // Persist expanded nodes to localStorage
+  // Persist shared tree state to localStorage (Tab 2 & 3 unification)
   useEffect(() => {
-    if (expandedNodes.size > 0) {
-      localStorage.setItem('finance_insight_expanded_nodes', JSON.stringify(Array.from(expandedNodes)))
+    if (structureId && expandedNodes.size >= 0) {
+      const stateKey = getTreeStateKey(structureId)
+      const state = {
+        expandedNodes: Array.from(expandedNodes),
+        lastUpdated: new Date().toISOString()
+      }
+      localStorage.setItem(stateKey, JSON.stringify(state))
     }
-  }, [expandedNodes])
+  }, [expandedNodes, structureId])
 
   // Convert nested hierarchy to flat structure for AG-Grid tree data with path arrays
   const flattenHierarchy = useCallback((nodes: HierarchyNode[]): any[] => {
@@ -618,6 +635,17 @@ const DiscoveryScreen: React.FC = () => {
       }
     })
     
+    // Tree Unification: Apply saved expansion state after grid is ready
+    setTimeout(() => {
+      if (expandedNodes.size > 0 && params.api) {
+        params.api.forEachNode((node: any) => {
+          if (node.data && expandedNodes.has(node.data.node_id)) {
+            node.setExpanded(true)
+          }
+        })
+      }
+    }, 200)
+    
     // Trigger external filter after grid is ready
     setTimeout(() => {
       params.api.onFilterChanged()
@@ -825,6 +853,28 @@ const DiscoveryScreen: React.FC = () => {
             rowHeight={rowHeight}
             headerHeight={density === 'comfortable' ? 45 : 35}
             onGridReady={onGridReady}
+            onRowGroupOpened={(params) => {
+              // Tree Unification: Sync expansion to shared state
+              if (params.node && params.node.data) {
+                const nodeId = params.node.data.node_id
+                setExpandedNodes(prev => {
+                  const next = new Set(prev)
+                  next.add(nodeId)
+                  return next
+                })
+              }
+            }}
+            onRowGroupClosed={(params) => {
+              // Tree Unification: Sync expansion to shared state
+              if (params.node && params.node.data) {
+                const nodeId = params.node.data.node_id
+                setExpandedNodes(prev => {
+                  const next = new Set(prev)
+                  next.delete(nodeId)
+                  return next
+                })
+              }
+            }}
             defaultColDef={{
               sortable: true,
               filter: true,

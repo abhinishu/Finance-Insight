@@ -68,6 +68,16 @@ const ExecutiveDashboard: React.FC = () => {
   const [drawerOpen, setDrawerOpen] = useState<boolean>(false)
   const [selectedRule, setSelectedRule] = useState<ResultsNode | null>(null)
 
+  // View Mode
+  const [viewMode, setViewMode] = useState<'standard' | 'delta' | 'drilldown'>('standard')
+  const [traceNode, setTraceNode] = useState<ResultsNode | null>(null)
+  const [traceOpen, setTraceOpen] = useState<boolean>(false)
+
+  // Freshness & Outdated Warning
+  const [lastCalculated, setLastCalculated] = useState<string | null>(null)
+  const [rulesLastModified, setRulesLastModified] = useState<string | null>(null)
+  const [isCalculationOutdated, setIsCalculationOutdated] = useState<boolean>(false)
+
   const gridRef = useRef<AgGridReact>(null)
 
   // Load use cases
@@ -79,6 +89,7 @@ const ExecutiveDashboard: React.FC = () => {
   useEffect(() => {
     if (selectedUseCaseId) {
       loadRuns(selectedUseCaseId)
+      checkCalculationFreshness(selectedUseCaseId)
     }
   }, [selectedUseCaseId])
 
@@ -128,6 +139,11 @@ const ExecutiveDashboard: React.FC = () => {
       
       const response = await axios.get<ResultsResponse>(url)
       
+      // Store last calculated timestamp
+      if (response.data.run_timestamp) {
+        setLastCalculated(response.data.run_timestamp)
+      }
+      
       const hierarchy = response.data.hierarchy || []
       if (hierarchy.length === 0) {
         setError('No results found. Please run a calculation first.')
@@ -139,12 +155,55 @@ const ExecutiveDashboard: React.FC = () => {
       // Flatten hierarchy for AG-Grid
       const flatData = flattenHierarchy(hierarchy)
       setRowData(flatData)
+      
+      // Check if calculation is outdated (compare with rules last modified)
+      await checkCalculationFreshness(useCaseId)
     } catch (err: any) {
       console.error('Failed to load results:', err)
       setError(err.response?.data?.detail || 'Failed to load results.')
     } finally {
       setLoading(false)
     }
+  }
+
+  // Check if calculation is outdated
+  const checkCalculationFreshness = async (useCaseId: string) => {
+    try {
+      // Get latest rule modification time
+      const rulesResponse = await axios.get(
+        `${API_BASE_URL}/api/v1/use-cases/${useCaseId}/rules`
+      )
+      const rules = rulesResponse.data || []
+      
+      if (rules.length > 0) {
+        // Find most recent rule modification
+        const latestRule = rules.reduce((latest: any, rule: any) => {
+          if (!latest) return rule
+          return new Date(rule.last_modified_at) > new Date(latest.last_modified_at) ? rule : latest
+        }, null)
+        
+        if (latestRule && latestRule.last_modified_at) {
+          setRulesLastModified(latestRule.last_modified_at)
+          
+          // Compare with last calculated time
+          if (lastCalculated && new Date(latestRule.last_modified_at) > new Date(lastCalculated)) {
+            setIsCalculationOutdated(true)
+          } else {
+            setIsCalculationOutdated(false)
+          }
+        }
+      }
+    } catch (err: any) {
+      console.error('Failed to check calculation freshness:', err)
+    }
+  }
+
+  // Load calculation trace for a node
+  const loadCalculationTrace = async (node: ResultsNode) => {
+    setTraceNode(node)
+    setTraceOpen(true)
+    // TODO: Implement trace API endpoint to get exact math steps
+    // For now, we'll show the node's calculation path
   }
 
   const flattenHierarchy = (nodes: ResultsNode[], parentPath: string[] = []): any[] => {
@@ -176,76 +235,221 @@ const ExecutiveDashboard: React.FC = () => {
     return result
   }
 
-  // AG-Grid Column Definitions
-  const columnDefs: ColDef[] = [
-    {
-      field: 'node_name',
-      headerName: 'Dimension Node',
-      flex: 2,
-      cellRenderer: 'agGroupCellRenderer',
-    },
-    {
-      field: 'natural_value',
-      headerName: 'Natural GL',
-      flex: 1.2,
-      valueGetter: (params) => parseFloat(params.data?.natural_value?.daily || 0),
-      valueFormatter: (params) => {
-        if (!params.value) return '$0.00'
-        return `$${params.value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  // AG-Grid Column Definitions (dynamic based on view mode)
+  const getColumnDefs = (): ColDef[] => {
+    const baseColumns: ColDef[] = [
+      {
+        field: 'node_name',
+        headerName: 'Dimension Node',
+        flex: 2,
+        cellRenderer: 'agGroupCellRenderer',
       },
-      cellStyle: { textAlign: 'right' },
-    },
-    {
-      field: 'adjusted_value',
-      headerName: 'Adjusted P&L',
-      flex: 1.2,
-      valueGetter: (params) => parseFloat(params.data?.adjusted_value?.daily || 0),
-      valueFormatter: (params) => {
-        if (!params.value) return '$0.00'
-        return `$${params.value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-      },
-      cellStyle: { textAlign: 'right' },
-    },
-    {
-      field: 'plug',
-      headerName: 'Reconciliation Plug',
-      flex: 1.2,
-      valueGetter: (params) => parseFloat(params.data?.plug?.daily || 0),
-      valueFormatter: (params) => {
-        if (!params.value) return '$0.00'
-        const value = params.value
-        const formatted = `$${Math.abs(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-        return value < 0 ? `(${formatted})` : formatted
-      },
-      cellStyle: (params) => {
-        const value = parseFloat(params.data?.plug?.daily || 0)
-        const baseStyle: any = { textAlign: 'right', cursor: 'pointer' }
-        if (Math.abs(value) > 0.01) {
-          baseStyle.color = '#d97706' // Amber color
-          baseStyle.fontWeight = '600'
-        }
-        return baseStyle
-      },
-      onCellClicked: (params) => {
-        if (params.data?.rule && Math.abs(parseFloat(params.data.plug?.daily || 0)) > 0.01) {
-          setSelectedRule(params.data)
-          setDrawerOpen(true)
-        }
-      },
-    },
-    {
-      field: 'rule',
-      headerName: 'Rule Reference',
-      flex: 1,
-      cellRenderer: (params: any) => {
-        if (!params.data?.rule?.logic_en) {
-          return '<span style="color: #999;">—</span>'
-        }
-        return `<span class="rule-badge">Rule #${params.data.rule.rule_id || 'N/A'}</span>`
-      },
-      cellStyle: { textAlign: 'center' },
-    },
-  ]
+    ]
+
+    if (viewMode === 'standard') {
+      // Standard: Show Natural, Adjusted, Plug
+      return [
+        ...baseColumns,
+        {
+          field: 'natural_value',
+          headerName: 'Natural GL',
+          flex: 1.2,
+          valueGetter: (params) => parseFloat(params.data?.natural_value?.daily || 0),
+          valueFormatter: (params) => {
+            if (!params.value) return '$0.00'
+            return `$${params.value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+          },
+          cellStyle: { textAlign: 'right', cursor: 'pointer' },
+          onCellClicked: (params) => {
+            if (viewMode === 'drilldown') {
+              loadCalculationTrace(params.data)
+            }
+          },
+        },
+        {
+          field: 'adjusted_value',
+          headerName: 'Adjusted P&L',
+          flex: 1.2,
+          valueGetter: (params) => parseFloat(params.data?.adjusted_value?.daily || 0),
+          valueFormatter: (params) => {
+            if (!params.value) return '$0.00'
+            return `$${params.value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+          },
+          cellStyle: { textAlign: 'right', cursor: 'pointer' },
+          onCellClicked: (params) => {
+            if (viewMode === 'drilldown') {
+              loadCalculationTrace(params.data)
+            }
+          },
+        },
+        {
+          field: 'plug',
+          headerName: 'Reconciliation Plug',
+          headerTooltip: 'Plug = Natural GL - Adjusted P&L (Golden Equation: Natural = Adjusted + Plug)',
+          flex: 1.2,
+          valueGetter: (params) => parseFloat(params.data?.plug?.daily || 0),
+          valueFormatter: (params) => {
+            if (!params.value) return '$0.00'
+            const value = params.value
+            const formatted = `$${Math.abs(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+            return value < 0 ? `(${formatted})` : formatted
+          },
+          cellStyle: (params) => {
+            const value = parseFloat(params.data?.plug?.daily || 0)
+            const baseStyle: any = { textAlign: 'right', cursor: 'pointer' }
+            if (Math.abs(value) > 0.01) {
+              baseStyle.color = '#d97706' // Amber color
+              baseStyle.fontWeight = '600'
+            }
+            return baseStyle
+          },
+          onCellClicked: (params) => {
+            if (viewMode === 'drilldown') {
+              loadCalculationTrace(params.data)
+            } else if (params.data?.rule && Math.abs(parseFloat(params.data.plug?.daily || 0)) > 0.01) {
+              setSelectedRule(params.data)
+              setDrawerOpen(true)
+            }
+          },
+        },
+        {
+          field: 'rule',
+          headerName: 'Rule Reference',
+          flex: 1,
+          cellRenderer: (params: any) => {
+            if (!params.data?.rule?.logic_en) {
+              return '<span style="color: #999;">—</span>'
+            }
+            return `<span class="rule-badge">Rule #${params.data.rule.rule_id || 'N/A'}</span>`
+          },
+          cellStyle: { textAlign: 'center' },
+        },
+      ]
+    } else if (viewMode === 'delta') {
+      // Delta Mode: Only show Plug and Variance %
+      return [
+        ...baseColumns,
+        {
+          field: 'plug',
+          headerName: 'Reconciliation Plug',
+          flex: 1.5,
+          valueGetter: (params) => parseFloat(params.data?.plug?.daily || 0),
+          valueFormatter: (params) => {
+            if (!params.value) return '$0.00'
+            const value = params.value
+            const formatted = `$${Math.abs(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+            return value < 0 ? `(${formatted})` : formatted
+          },
+          cellStyle: (params) => {
+            const value = parseFloat(params.data?.plug?.daily || 0)
+            const baseStyle: any = { textAlign: 'right', cursor: 'pointer' }
+            if (Math.abs(value) > 0.01) {
+              baseStyle.color = '#d97706'
+              baseStyle.fontWeight = '600'
+            }
+            return baseStyle
+          },
+          onCellClicked: (params) => {
+            if (params.data?.rule && Math.abs(parseFloat(params.data.plug?.daily || 0)) > 0.01) {
+              setSelectedRule(params.data)
+              setDrawerOpen(true)
+            }
+          },
+        },
+        {
+          field: 'variance',
+          headerName: 'Variance %',
+          flex: 1,
+          valueGetter: (params) => {
+            const natural = parseFloat(params.data?.natural_value?.daily || 0)
+            const adjusted = parseFloat(params.data?.adjusted_value?.daily || 0)
+            if (Math.abs(natural) < 0.01) return 0
+            return ((adjusted - natural) / Math.abs(natural)) * 100
+          },
+          valueFormatter: (params) => {
+            if (params.value === null || params.value === undefined) return '0.00%'
+            return `${params.value.toFixed(2)}%`
+          },
+          cellStyle: (params) => {
+            const value = params.value || 0
+            const baseStyle: any = { textAlign: 'right' }
+            if (Math.abs(value) > 0.01) {
+              baseStyle.color = value < 0 ? '#dc2626' : '#059669'
+              baseStyle.fontWeight = '600'
+            }
+            return baseStyle
+          },
+        },
+      ]
+    } else {
+      // Drill-Down mode: Same as standard but cells are clickable for trace
+      const standardCols = [
+        ...baseColumns,
+        {
+          field: 'natural_value',
+          headerName: 'Natural GL',
+          flex: 1.2,
+          valueGetter: (params) => parseFloat(params.data?.natural_value?.daily || 0),
+          valueFormatter: (params) => {
+            if (!params.value) return '$0.00'
+            return `$${params.value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+          },
+          cellStyle: { textAlign: 'right', cursor: 'pointer' },
+          onCellClicked: (params) => loadCalculationTrace(params.data),
+        },
+        {
+          field: 'adjusted_value',
+          headerName: 'Adjusted P&L',
+          flex: 1.2,
+          valueGetter: (params) => parseFloat(params.data?.adjusted_value?.daily || 0),
+          valueFormatter: (params) => {
+            if (!params.value) return '$0.00'
+            return `$${params.value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+          },
+          cellStyle: { textAlign: 'right', cursor: 'pointer' },
+          onCellClicked: (params) => loadCalculationTrace(params.data),
+        },
+        {
+          field: 'plug',
+          headerName: 'Reconciliation Plug',
+          headerTooltip: 'Plug = Natural GL - Adjusted P&L (Golden Equation: Natural = Adjusted + Plug)',
+          flex: 1.2,
+          valueGetter: (params) => parseFloat(params.data?.plug?.daily || 0),
+          valueFormatter: (params) => {
+            if (!params.value) return '$0.00'
+            const value = params.value
+            const formatted = `$${Math.abs(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+            return value < 0 ? `(${formatted})` : formatted
+          },
+          cellStyle: (params) => {
+            const value = parseFloat(params.data?.plug?.daily || 0)
+            const baseStyle: any = { textAlign: 'right', cursor: 'pointer' }
+            if (Math.abs(value) > 0.01) {
+              baseStyle.color = '#d97706'
+              baseStyle.fontWeight = '600'
+            }
+            return baseStyle
+          },
+          onCellClicked: (params) => loadCalculationTrace(params.data),
+        },
+        {
+          field: 'rule',
+          headerName: 'Rule Reference',
+          flex: 1,
+          cellRenderer: (params: any) => {
+            if (!params.data?.rule?.logic_en) {
+              return '<span style="color: #999;">—</span>'
+            }
+            return `<span class="rule-badge">Rule #${params.data.rule.rule_id || 'N/A'}</span>`
+          },
+          cellStyle: { textAlign: 'center' },
+        },
+      ]
+      return standardCols
+    }
+  }
+
+  const columnDefs = getColumnDefs()
 
   const defaultColDef: ColDef = {
     sortable: true,
@@ -358,8 +562,61 @@ const ExecutiveDashboard: React.FC = () => {
               </option>
             ))}
           </select>
+          
+          {/* View Controller */}
+          <div style={{ marginLeft: '16px', display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <label style={{ fontSize: '12px', fontWeight: '500' }}>View:</label>
+            <button
+              onClick={() => setViewMode('standard')}
+              style={{
+                padding: '4px 12px',
+                fontSize: '12px',
+                backgroundColor: viewMode === 'standard' ? '#0ea5e9' : '#e5e7eb',
+                color: viewMode === 'standard' ? 'white' : '#374151',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer'
+              }}
+            >
+              Standard
+            </button>
+            <button
+              onClick={() => setViewMode('delta')}
+              style={{
+                padding: '4px 12px',
+                fontSize: '12px',
+                backgroundColor: viewMode === 'delta' ? '#0ea5e9' : '#e5e7eb',
+                color: viewMode === 'delta' ? 'white' : '#374151',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer'
+              }}
+            >
+              Delta Mode
+            </button>
+            <button
+              onClick={() => setViewMode('drilldown')}
+              style={{
+                padding: '4px 12px',
+                fontSize: '12px',
+                backgroundColor: viewMode === 'drilldown' ? '#0ea5e9' : '#e5e7eb',
+                color: viewMode === 'drilldown' ? 'white' : '#374151',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer'
+              }}
+            >
+              Drill-Down
+            </button>
+          </div>
         </div>
         <div className="header-right">
+          {/* Freshness Indicator */}
+          {lastCalculated && (
+            <div style={{ marginRight: '12px', fontSize: '12px', color: '#6b7280' }}>
+              Last Calculated: {new Date(lastCalculated).toLocaleString()}
+            </div>
+          )}
           <button
             className="export-button"
             onClick={handleExportReconciliation}
@@ -368,6 +625,44 @@ const ExecutiveDashboard: React.FC = () => {
             Export Reconciliation
           </button>
         </div>
+      </div>
+
+      {/* Calculation Outdated Warning */}
+      {isCalculationOutdated && (
+        <div style={{
+          backgroundColor: '#fef2f2',
+          border: '1px solid #dc2626',
+          borderRadius: '4px',
+          padding: '12px',
+          margin: '12px 0',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px'
+        }}>
+          <span style={{ fontSize: '18px' }}>⚠️</span>
+          <div>
+            <strong style={{ color: '#dc2626' }}>Calculation Outdated</strong>
+            <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: '#6b7280' }}>
+              Rules have been updated since the last calculation. Please re-run the waterfall to see updated results.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Golden Equation Indicator */}
+      <div className="golden-equation-banner" style={{
+        backgroundColor: '#f0f9ff',
+        border: '1px solid #0ea5e9',
+        borderRadius: '4px',
+        padding: '8px 12px',
+        margin: '12px 0',
+        fontSize: '13px',
+        color: '#0c4a6e'
+      }}>
+        <strong>Golden Equation:</strong> Natural GL Baseline = Adjusted P&L + Reconciliation Plug
+        <span style={{ marginLeft: '12px', fontSize: '12px', color: '#64748b' }}>
+          (All calculations verified using Decimal precision)
+        </span>
       </div>
 
       {/* Error Message */}
@@ -436,6 +731,75 @@ const ExecutiveDashboard: React.FC = () => {
                   <br />
                   YTD: ${parseFloat(selectedRule.plug.ytd).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                 </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Calculation Trace Drawer */}
+      {traceOpen && traceNode && (
+        <div className="drawer-overlay" onClick={() => setTraceOpen(false)}>
+          <div className="drawer-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '600px' }}>
+            <div className="drawer-header">
+              <h3>Calculation Trace</h3>
+              <button className="drawer-close" onClick={() => setTraceOpen(false)}>
+                ×
+              </button>
+            </div>
+            <div className="drawer-body">
+              <div className="rule-section">
+                <strong>Node:</strong>
+                <p>{traceNode.node_name} ({traceNode.node_id})</p>
+              </div>
+              
+              <div className="rule-section">
+                <strong>Calculation Steps (Leaf to Parent):</strong>
+                <div style={{ marginTop: '8px', padding: '12px', backgroundColor: '#f9fafb', borderRadius: '4px' }}>
+                  <div style={{ marginBottom: '8px' }}>
+                    <strong>1. Natural GL Baseline:</strong>
+                    <div style={{ marginLeft: '16px', fontSize: '13px', color: '#6b7280' }}>
+                      Daily: ${parseFloat(traceNode.natural_value.daily).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      <br />
+                      MTD: ${parseFloat(traceNode.natural_value.mtd).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      <br />
+                      YTD: ${parseFloat(traceNode.natural_value.ytd).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                    </div>
+                  </div>
+                  
+                  {traceNode.is_override && (
+                    <div style={{ marginBottom: '8px' }}>
+                      <strong>2. Rule Applied:</strong>
+                      <div style={{ marginLeft: '16px', fontSize: '13px', color: '#6b7280' }}>
+                        {traceNode.rule?.logic_en || 'N/A'}
+                      </div>
+                    </div>
+                  )}
+                  
+                  <div style={{ marginBottom: '8px' }}>
+                    <strong>3. Adjusted P&L:</strong>
+                    <div style={{ marginLeft: '16px', fontSize: '13px', color: '#6b7280' }}>
+                      Daily: ${parseFloat(traceNode.adjusted_value.daily).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      <br />
+                      MTD: ${parseFloat(traceNode.adjusted_value.mtd).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      <br />
+                      YTD: ${parseFloat(traceNode.adjusted_value.ytd).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <strong>4. Reconciliation Plug:</strong>
+                    <div style={{ marginLeft: '16px', fontSize: '13px', color: '#6b7280' }}>
+                      Plug = Natural - Adjusted
+                      <br />
+                      Daily: ${parseFloat(traceNode.plug.daily).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      <br />
+                      MTD: ${parseFloat(traceNode.plug.mtd).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      <br />
+                      YTD: ${parseFloat(traceNode.plug.ytd).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

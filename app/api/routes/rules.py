@@ -4,7 +4,7 @@ Provides endpoints for creating and managing business rules.
 """
 
 import logging
-from typing import List
+from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -12,12 +12,16 @@ from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_db
 from app.api.schemas import (
+    BulkRuleCreateRequest,
+    BulkRuleDeleteRequest,
+    BulkRuleResponse,
     RuleCreate,
     RuleGenAIRequest,
     RuleGenAIResponse,
     RulePreviewRequest,
     RulePreviewResponse,
     RuleResponse,
+    RuleStackResponse,
 )
 from app.engine.translator import translate_rule
 from app.models import DimHierarchy, MetadataRule, UseCase
@@ -330,4 +334,331 @@ def translate_genai_rule(
             errors=[f"Unexpected error: {str(e)}"],
             preview_available=False
         )
+
+
+@router.post("/use-cases/{use_case_id}/rules/bulk", response_model=BulkRuleResponse)
+def bulk_create_rules(
+    use_case_id: UUID,
+    request: BulkRuleCreateRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Create or update rules for multiple nodes simultaneously (batch save).
+    
+    Args:
+        use_case_id: Use case UUID
+        request: BulkRuleCreateRequest with node_ids and rule configuration
+        db: Database session
+    
+    Returns:
+        BulkRuleResponse with success/failure counts and created rules
+    """
+    try:
+        # Validate use case exists
+        use_case = db.query(UseCase).filter(UseCase.use_case_id == use_case_id).first()
+        if not use_case:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Use case '{use_case_id}' not found"
+            )
+        
+        created_rules = []
+        errors = []
+        success_count = 0
+        failed_count = 0
+        
+        # Process each node
+        for node_id in request.node_ids:
+            try:
+                # Create RuleCreate object for this node
+                rule_data = RuleCreate(
+                    node_id=node_id,
+                    last_modified_by=request.last_modified_by,
+                    conditions=request.conditions,
+                    logic_en=request.logic_en
+                )
+                
+                # Create rule using existing logic
+                if rule_data.conditions:
+                    rule = create_manual_rule(use_case_id, rule_data, db)
+                elif rule_data.logic_en:
+                    # Translate and create
+                    predicate_json, sql_where, translation_errors, translation_successful = translate_rule(
+                        rule_data.logic_en,
+                        use_cache=True
+                    )
+                    
+                    if not translation_successful:
+                        errors.append(f"Node {node_id}: Translation failed: {'; '.join(translation_errors)}")
+                        failed_count += 1
+                        continue
+                    
+                    # Check if rule exists
+                    existing_rule = db.query(MetadataRule).filter(
+                        MetadataRule.use_case_id == use_case_id,
+                        MetadataRule.node_id == node_id
+                    ).first()
+                    
+                    if existing_rule:
+                        existing_rule.predicate_json = predicate_json
+                        existing_rule.sql_where = sql_where
+                        existing_rule.logic_en = rule_data.logic_en
+                        existing_rule.last_modified_by = rule_data.last_modified_by
+                        db.commit()
+                        db.refresh(existing_rule)
+                        rule = existing_rule
+                    else:
+                        rule = MetadataRule(
+                            use_case_id=use_case_id,
+                            node_id=node_id,
+                            predicate_json=predicate_json,
+                            sql_where=sql_where,
+                            logic_en=rule_data.logic_en,
+                            last_modified_by=rule_data.last_modified_by
+                        )
+                        db.add(rule)
+                        db.commit()
+                        db.refresh(rule)
+                else:
+                    errors.append(f"Node {node_id}: Must provide either 'conditions' or 'logic_en'")
+                    failed_count += 1
+                    continue
+                
+                # Get node name for response
+                node = db.query(DimHierarchy).filter(DimHierarchy.node_id == rule.node_id).first()
+                node_name = node.node_name if node else None
+                
+                created_rules.append(RuleResponse(
+                    rule_id=rule.rule_id,
+                    use_case_id=rule.use_case_id,
+                    node_id=rule.node_id,
+                    node_name=node_name,
+                    logic_en=rule.logic_en if rule.logic_en else None,
+                    predicate_json=rule.predicate_json if rule.predicate_json else None,
+                    sql_where=rule.sql_where if rule.sql_where else None,
+                    last_modified_by=rule.last_modified_by,
+                    created_at=rule.created_at.isoformat(),
+                    last_modified_at=rule.last_modified_at.isoformat()
+                ))
+                success_count += 1
+                
+            except Exception as e:
+                logger.error(f"Error creating rule for node {node_id}: {e}")
+                errors.append(f"Node {node_id}: {str(e)}")
+                failed_count += 1
+        
+        return BulkRuleResponse(
+            success_count=success_count,
+            failed_count=failed_count,
+            errors=errors,
+            created_rules=created_rules
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in bulk rule creation: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to create bulk rules: {str(e)}")
+
+
+@router.delete("/use-cases/{use_case_id}/rules/bulk", response_model=BulkRuleResponse)
+def bulk_delete_rules(
+    use_case_id: UUID,
+    request: BulkRuleDeleteRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Delete rules for multiple nodes in one transaction (Clear Rules).
+    
+    Args:
+        use_case_id: Use case UUID
+        request: BulkRuleDeleteRequest with node_ids
+        db: Database session
+    
+    Returns:
+        BulkRuleResponse with success/failure counts
+    """
+    try:
+        # Validate use case exists
+        use_case = db.query(UseCase).filter(UseCase.use_case_id == use_case_id).first()
+        if not use_case:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Use case '{use_case_id}' not found"
+            )
+        
+        success_count = 0
+        failed_count = 0
+        errors = []
+        
+        # Delete rules in one transaction
+        try:
+            deleted_count = db.query(MetadataRule).filter(
+                MetadataRule.use_case_id == use_case_id,
+                MetadataRule.node_id.in_(request.node_ids)
+            ).delete(synchronize_session=False)
+            
+            db.commit()
+            success_count = deleted_count
+            
+            # Check if any requested nodes didn't have rules
+            if deleted_count < len(request.node_ids):
+                failed_count = len(request.node_ids) - deleted_count
+                errors.append(f"{failed_count} node(s) did not have rules to delete")
+                
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Error deleting bulk rules: {e}")
+            errors.append(f"Transaction failed: {str(e)}")
+            failed_count = len(request.node_ids)
+            success_count = 0
+        
+        return BulkRuleResponse(
+            success_count=success_count,
+            failed_count=failed_count,
+            errors=errors,
+            created_rules=[]
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in bulk rule deletion: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to delete bulk rules: {str(e)}")
+
+
+@router.get("/use-cases/{use_case_id}/rules/stack/{node_id}", response_model=RuleStackResponse)
+def get_rule_stack(
+    use_case_id: UUID,
+    node_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Get rule stack for a node: direct rule + parent rules from path.
+    
+    Args:
+        use_case_id: Use case UUID
+        node_id: Node ID to get rule stack for
+        db: Database session
+    
+    Returns:
+        RuleStackResponse with direct rule and parent rules
+    """
+    try:
+        # Validate use case exists
+        use_case = db.query(UseCase).filter(UseCase.use_case_id == use_case_id).first()
+        if not use_case:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Use case '{use_case_id}' not found"
+            )
+        
+        # Get node
+        node = db.query(DimHierarchy).filter(DimHierarchy.node_id == node_id).first()
+        if not node:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Node '{node_id}' not found"
+            )
+        
+        # Get direct rule for this node
+        direct_rule_obj = db.query(MetadataRule).filter(
+            MetadataRule.use_case_id == use_case_id,
+            MetadataRule.node_id == node_id
+        ).first()
+        
+        direct_rule = None
+        if direct_rule_obj:
+            direct_rule = RuleResponse(
+                rule_id=direct_rule_obj.rule_id,
+                use_case_id=direct_rule_obj.use_case_id,
+                node_id=direct_rule_obj.node_id,
+                node_name=node.node_name,
+                logic_en=direct_rule_obj.logic_en if direct_rule_obj.logic_en else None,
+                predicate_json=direct_rule_obj.predicate_json if direct_rule_obj.predicate_json else None,
+                sql_where=direct_rule_obj.sql_where if direct_rule_obj.sql_where else None,
+                last_modified_by=direct_rule_obj.last_modified_by,
+                created_at=direct_rule_obj.created_at.isoformat(),
+                last_modified_at=direct_rule_obj.last_modified_at.isoformat()
+            )
+        
+        # Get path array to find parent nodes (traverse up to root)
+        from sqlalchemy import text
+        path_query = text("""
+            WITH RECURSIVE node_paths AS (
+                -- Start with the target node
+                SELECT 
+                    node_id,
+                    node_name,
+                    parent_node_id,
+                    ARRAY[node_id]::text[] as path_ids
+                FROM dim_hierarchy
+                WHERE node_id = :node_id
+                
+                UNION ALL
+                
+                -- Traverse up to parent
+                SELECT 
+                    h.node_id,
+                    h.node_name,
+                    h.parent_node_id,
+                    h.node_id || np.path_ids
+                FROM dim_hierarchy h
+                INNER JOIN node_paths np ON h.node_id = np.parent_node_id
+            )
+            SELECT path_ids FROM node_paths WHERE parent_node_id IS NULL
+        """)
+        
+        try:
+            path_result = db.execute(path_query, {"node_id": node_id}).fetchone()
+            path_ids = list(path_result[0]) if path_result and path_result[0] else [node_id]
+        except Exception as e:
+            logger.warning(f"Failed to get path for node {node_id}: {e}")
+            # Fallback: just use the node itself
+            path_ids = [node_id]
+        
+        # Get parent rules (exclude current node)
+        parent_rules = []
+        if path_ids:
+            parent_node_ids = path_ids[:-1]  # All nodes except the current one
+            if parent_node_ids:
+                parent_rule_objs = db.query(MetadataRule).filter(
+                    MetadataRule.use_case_id == use_case_id,
+                    MetadataRule.node_id.in_(parent_node_ids)
+                ).all()
+                
+                for parent_rule_obj in parent_rule_objs:
+                    parent_node = db.query(DimHierarchy).filter(
+                        DimHierarchy.node_id == parent_rule_obj.node_id
+                    ).first()
+                    
+                    parent_rules.append(RuleResponse(
+                        rule_id=parent_rule_obj.rule_id,
+                        use_case_id=parent_rule_obj.use_case_id,
+                        node_id=parent_rule_obj.node_id,
+                        node_name=parent_node.node_name if parent_node else None,
+                        logic_en=parent_rule_obj.logic_en if parent_rule_obj.logic_en else None,
+                        predicate_json=parent_rule_obj.predicate_json if parent_rule_obj.predicate_json else None,
+                        sql_where=parent_rule_obj.sql_where if parent_rule_obj.sql_where else None,
+                        last_modified_by=parent_rule_obj.last_modified_by,
+                        created_at=parent_rule_obj.created_at.isoformat(),
+                        last_modified_at=parent_rule_obj.last_modified_at.isoformat()
+                    ))
+        
+        # Check for conflicts: if child has direct rule and parent also has rule
+        has_conflict = direct_rule is not None and len(parent_rules) > 0
+        
+        return RuleStackResponse(
+            node_id=node_id,
+            node_name=node.node_name,
+            direct_rule=direct_rule,
+            parent_rules=parent_rules,
+            has_conflict=has_conflict
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting rule stack: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get rule stack: {str(e)}")
 
