@@ -128,21 +128,37 @@ def list_reports(
     
     reports = query.order_by(ReportRegistration.created_at.desc()).all()
     
-    return [
-        ReportRegistrationResponse(
-            report_id=str(r.report_id),
-            report_name=r.report_name,
-            atlas_structure_id=r.atlas_structure_id,
-            selected_measures=r.selected_measures,
-            selected_dimensions=r.selected_dimensions,
-            measure_scopes=r.measure_scopes or {},
-            dimension_scopes=r.dimension_scopes or {},
-            owner_id=r.owner_id,
-            created_at=r.created_at.isoformat(),
-            updated_at=r.updated_at.isoformat()
-        )
-        for r in reports
-    ]
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"Reports: Found {len(reports)} reports in database")
+    
+    # Handle empty list case gracefully
+    if not reports:
+        logger.info("Reports: No reports found, returning empty list")
+        return []
+    
+    result = []
+    for r in reports:
+        try:
+            result.append(ReportRegistrationResponse(
+                report_id=str(r.report_id),
+                report_name=r.report_name,
+                atlas_structure_id=r.atlas_structure_id,
+                selected_measures=r.selected_measures or [],
+                selected_dimensions=r.selected_dimensions or [],
+                measure_scopes=r.measure_scopes or {},
+                dimension_scopes=r.dimension_scopes or {},
+                owner_id=r.owner_id,
+                created_at=r.created_at.isoformat(),
+                updated_at=r.updated_at.isoformat()
+            ))
+        except Exception as e:
+            logger.error(f"Reports: Error serializing report {r.report_id}: {e}")
+            # Skip invalid reports but continue processing others
+            continue
+    
+    logger.info(f"Reports: Returning {len(result)} valid reports")
+    return result
 
 
 @router.get("/reports/{report_id}", response_model=ReportRegistrationResponse)

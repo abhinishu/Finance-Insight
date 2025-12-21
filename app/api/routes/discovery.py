@@ -3,7 +3,7 @@ Discovery API routes for Finance-Insight
 Provides hierarchy with natural values for discovery view.
 """
 
-from typing import Dict, List
+from typing import Dict, List, Optional
 from uuid import UUID
 from decimal import Decimal
 
@@ -27,26 +27,35 @@ def list_structures(db: Session = Depends(get_db)):
     """
     from app.models import DimHierarchy
     from sqlalchemy import func
+    import logging
     
-    # Get distinct structures with counts
+    logger = logging.getLogger(__name__)
+    
+    # Get distinct structures with counts (filter out NULL atlas_source)
     structures = db.query(
         DimHierarchy.atlas_source,
         func.count(DimHierarchy.node_id).label('node_count')
+    ).filter(
+        DimHierarchy.atlas_source.isnot(None)  # Filter out NULL structures
     ).group_by(DimHierarchy.atlas_source).all()
+    
+    logger.info(f"Structures: Found {len(structures)} structures in database")
     
     result = []
     for structure_id, node_count in structures:
-        # Generate friendly name from structure_id
-        name = structure_id.replace('_', ' ').title()
-        if structure_id.startswith('MOCK_ATLAS'):
-            name = f"Mock Atlas Structure {structure_id.split('_')[-1]}"
-        
-        result.append({
-            "structure_id": structure_id,
-            "name": name,
-            "node_count": node_count
-        })
+        if structure_id:  # Additional safety check
+            # Generate friendly name from structure_id
+            name = structure_id.replace('_', ' ').title()
+            if structure_id.startswith('MOCK_ATLAS'):
+                name = f"Mock Atlas Structure {structure_id.split('_')[-1]}"
+            
+            result.append({
+                "structure_id": structure_id,
+                "name": name,
+                "node_count": node_count
+            })
     
+    logger.info(f"Structures: Returning {len(result)} valid structures")
     return {"structures": result}
 
 
@@ -136,6 +145,7 @@ def build_tree_structure(
 @router.get("/discovery", response_model=DiscoveryResponse)
 def get_discovery_view(
     structure_id: str,
+    report_id: Optional[UUID] = None,
     db: Session = Depends(get_db)
 ):
     """
@@ -145,22 +155,53 @@ def get_discovery_view(
     No rules are applied - pure bottom-up aggregation.
     Uses structure_id directly (no use case required for discovery).
     
+    If report_id is provided, filters measures and dimensions based on ReportRegistration configuration.
+    This ensures Tab 1 configuration drives what's displayed in Tabs 2 and 3.
+    
     Args:
         structure_id: Atlas structure identifier
+        report_id: Optional report registration ID (for filtering measures/dimensions)
         db: Database session
     
     Returns:
         DiscoveryResponse with hierarchy tree and natural values
     """
-    from app.models import DimHierarchy
+    from app.models import DimHierarchy, ReportRegistration
     from sqlalchemy import text
     
-    # Load hierarchy by structure_id
+    # Load hierarchy by structure_id (NO JOIN with rules - pure Phase 1 functionality)
     hierarchy_nodes = db.query(DimHierarchy).filter(
         DimHierarchy.atlas_source == structure_id
     ).all()
     
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    # Load report registration if report_id provided (for filtering)
+    report_config = None
+    if report_id:
+        report_config = db.query(ReportRegistration).filter(
+            ReportRegistration.report_id == report_id
+        ).first()
+        if not report_config:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Report registration '{report_id}' not found"
+            )
+        # Verify structure_id matches
+        if report_config.atlas_structure_id != structure_id:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Report structure '{report_config.atlas_structure_id}' does not match requested structure '{structure_id}'"
+            )
+        logger.info(f"Discovery: Using report configuration for report_id: {report_id}")
+        logger.info(f"  Selected measures: {report_config.selected_measures}")
+        logger.info(f"  Selected dimensions: {report_config.selected_dimensions}")
+    
+    logger.info(f"Discovery: Loaded {len(hierarchy_nodes)} nodes for structure_id: {structure_id}")
+    
     if not hierarchy_nodes:
+        logger.warning(f"Discovery: No hierarchy found for structure_id: {structure_id}")
         raise HTTPException(
             status_code=404,
             detail=f"No hierarchy found for structure_id: {structure_id}"
@@ -293,9 +334,12 @@ def get_discovery_view(
         reconciliation_data = None
     
     # Build response with optional reconciliation data
-    return DiscoveryResponse(
+    logger.info(f"Discovery: Returning hierarchy with {len([root_node])} root node(s)")
+    response = DiscoveryResponse(
         structure_id=structure_id,
         hierarchy=[root_node],
         reconciliation=reconciliation_data
     )
+    logger.info(f"Discovery: Response built successfully, hierarchy has {len(response.hierarchy)} root nodes")
+    return response
 

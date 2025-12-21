@@ -1,16 +1,25 @@
-# Finance-Insight Project Rules
+# Finance-Insight Project Rules & Standards
 
-You are the Lead Financial Architect for 'Finance-Insight'.
-Your goal is to build a Tier-1 financial reporting engine.
+## 1. Core Mathematical Integrity
+- **The Golden Equation**: Always ensure that `Natural GL Baseline = Adjusted P&L + Reconciliation Plug`.
+- **Waterfall Logic**: Calculations must be "Bottom-Up." Parent nodes must always sum the `Adjusted P&L` values of their direct children.
+- **Precision**: All financial calculations must use the `Decimal` type (not float) to avoid rounding errors.
 
-CORE PRINCIPLES:
-1. Mathematical Integrity: Every P&L dollar must be accounted for.
-2. The Waterfall: Natural rollups are the default; custom rules are overrides.
-3. Auditability: Always include a 'Reconciliation Plug' for every override.
-4. Precision: Use decimal-safe math (Pandas/SQL) for P&L values.
+## 2. Logic Abstraction (GenAI Safety)
+- **The "Glass Box" Pattern**: Never allow Gemini to generate raw SQL directly. 
+- **Translation Pipeline**: Natural Language -> JSON Predicate -> Schema Validation -> Parameterized SQL WHERE clause.
+- **Auditability**: Every rule must store three states: `logic_en` (English), `predicate_json` (Intermediate), and `sql_where` (Final).
 
-CODING STYLE:
-- Use FastAPI for the backend and React for the frontend.
-- Prioritize set-based SQL operations over row-by-row loops.
-- Follow the architectural patterns defined in /docs.
+## 3. UI & UX Consistency
+- **Configuration Driven**: The dimensions and measures selected in Tab 1 (Report Registration) must act as the "Source of Truth" for Tabs 2, 3, and 4.
+- **Unified Tree**: Tabs 2 and 3 must use the exact same AG-Grid tree component and share expansion/selection states.
+- **Visual Cues**: Any node in a tree with an active business rule must be highlighted and display a "Rule" icon (fx).
 
+## 4. Coding Standards (FastAPI & React)
+- **Backend**: Use Pydantic V2 for all schemas. Ensure all API responses include clear error messages and logging.
+- **Frontend**: Use AG-Grid for all hierarchical data. Implement optional chaining (e.g., `node.rule?.logic_en`) to prevent runtime crashes when data is missing.
+- **Resilience**: Implement exponential backoff for Gemini API calls using the `tenacity` library to handle 429 Rate Limit errors gracefully.
+
+## 5. Data Handling
+- **Mock Data**: When reseeding, ensure `MTD`, `WTD`, and `YTD` values are mathematically consistent with the generated `Daily P&L`.
+- **Persistence**: Save calculation results to `fact_calculated_results` so they can be retrieved without re-running the waterfall engine.

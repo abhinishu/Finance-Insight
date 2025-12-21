@@ -71,22 +71,34 @@ const DiscoveryScreen: React.FC = () => {
   const [reconciliation, setReconciliation] = useState<ReconciliationData | null>(null) // Reconciliation data
   const gridRef = useRef<AgGridReact>(null)
   
+  // Shared tree state key (for Tab 2 & 3 unification)
+  const getTreeStateKey = (id: string) => `finance_insight_tree_state_${id}`
+  
   // Load persisted state from localStorage
   useEffect(() => {
     const savedReportId = localStorage.getItem('finance_insight_selected_report_id')
-    const savedExpandedNodes = localStorage.getItem('finance_insight_expanded_nodes')
     if (savedReportId) {
       setSelectedReportId(savedReportId)
     }
-    if (savedExpandedNodes) {
-      try {
-        const nodes = JSON.parse(savedExpandedNodes)
-        setExpandedNodes(new Set(nodes))
-      } catch (e) {
-        console.warn('Failed to load expanded nodes from localStorage:', e)
+  }, [])
+  
+  // Load shared tree state when structure changes (Tab 2 & 3 unification)
+  useEffect(() => {
+    if (structureId) {
+      const stateKey = getTreeStateKey(structureId)
+      const savedState = localStorage.getItem(stateKey)
+      if (savedState) {
+        try {
+          const state = JSON.parse(savedState)
+          if (state.expandedNodes) {
+            setExpandedNodes(new Set(state.expandedNodes))
+          }
+        } catch (e) {
+          console.warn('Failed to load shared tree state:', e)
+        }
       }
     }
-  }, [])
+  }, [structureId])
   
   // Persist selected report to localStorage
   useEffect(() => {
@@ -95,12 +107,17 @@ const DiscoveryScreen: React.FC = () => {
     }
   }, [selectedReportId])
   
-  // Persist expanded nodes to localStorage
+  // Persist shared tree state to localStorage (Tab 2 & 3 unification)
   useEffect(() => {
-    if (expandedNodes.size > 0) {
-      localStorage.setItem('finance_insight_expanded_nodes', JSON.stringify(Array.from(expandedNodes)))
+    if (structureId && expandedNodes.size >= 0) {
+      const stateKey = getTreeStateKey(structureId)
+      const state = {
+        expandedNodes: Array.from(expandedNodes),
+        lastUpdated: new Date().toISOString()
+      }
+      localStorage.setItem(stateKey, JSON.stringify(state))
     }
-  }, [expandedNodes])
+  }, [expandedNodes, structureId])
 
   // Convert nested hierarchy to flat structure for AG-Grid tree data with path arrays
   const flattenHierarchy = useCallback((nodes: HierarchyNode[]): any[] => {
@@ -157,25 +174,46 @@ const DiscoveryScreen: React.FC = () => {
   // Load available structures from API
   const loadStructures = useCallback(async () => {
     try {
+      console.log('Tab 2: Loading structures from:', `${API_BASE_URL}/api/v1/structures`)
       const response = await axios.get<{ structures: Structure[] }>(
         `${API_BASE_URL}/api/v1/structures`
       )
-      setAvailableStructures(response.data.structures)
+      console.log('Tab 2: Structures API response:', response.data)
+      const structures = response.data?.structures || []
+      console.log('Tab 2: Found', structures.length, 'structures')
+      setAvailableStructures(structures)
+      
+      // Auto-select first structure if none selected
+      if (structures.length > 0 && !structureId) {
+        const firstStructure = structures[0]
+        console.log('Tab 2: Auto-selecting first structure:', firstStructure.structure_id)
+        setStructureId(firstStructure.structure_id)
+      } else if (structures.length === 0) {
+        console.warn('Tab 2: No structures found')
+        setError('No structures available. Please ensure mock data has been generated.')
+      }
     } catch (err: any) {
-      console.error('Failed to load structures:', err)
-      setError('Failed to load available structures')
+      console.error('Tab 2: Failed to load structures:', err)
+      console.error('Tab 2: Error details:', err.response?.data || err.message)
+      setError(`Failed to load available structures: ${err.response?.data?.detail || err.message}`)
     }
-  }, [])
+  }, [structureId])
 
   // Load registered reports
   const loadReports = useCallback(async () => {
     try {
+      console.log('Tab 2: Loading reports from:', `${API_BASE_URL}/api/v1/reports`)
       const response = await axios.get<any[]>(
         `${API_BASE_URL}/api/v1/reports`
       )
-      setRegisteredReports(response.data)
+      console.log('Tab 2: Reports API response:', response.data)
+      const reports = response.data || []
+      console.log('Tab 2: Found', reports.length, 'reports')
+      setRegisteredReports(reports)
     } catch (err: any) {
-      console.error('Failed to load reports:', err)
+      console.error('Tab 2: Failed to load reports:', err)
+      console.error('Tab 2: Error details:', err.response?.data || err.message)
+      // Don't set error for reports - it's okay if there are no reports yet
     }
   }, [])
 
@@ -197,13 +235,28 @@ const DiscoveryScreen: React.FC = () => {
     setError(null)
     
     try {
+      console.log(`Tab 2: Loading discovery data for structure: ${structureId}`)
       const response = await axios.get<DiscoveryResponse>(
         `${API_BASE_URL}/api/v1/discovery`,
         { params: { structure_id: structureId } }
       )
       
+      // Debug: Log full API response
+      console.log('Tab 2: Full API Response:', response.data)
+      console.log('Tab 2: Hierarchy array length:', response.data?.hierarchy?.length || 0)
+      
+      // Ensure hierarchy exists, default to empty array
+      const hierarchy = response.data?.hierarchy || []
+      if (hierarchy.length === 0) {
+        console.warn('Tab 2: WARNING - Empty hierarchy array received from API')
+        setError('No hierarchy data found. Please ensure mock data has been generated.')
+        setRowData([])
+        setLoading(false)
+        return
+      }
+      
       // Convert nested hierarchy to flat structure with path arrays from SQL CTE
-      const flatData = flattenHierarchy(response.data.hierarchy)
+      const flatData = flattenHierarchy(hierarchy)
       
       // Store reconciliation data (optional)
       if (response.data && response.data.reconciliation) {
@@ -306,13 +359,18 @@ const DiscoveryScreen: React.FC = () => {
   }, [structureId, flattenHierarchy, gridApi])
 
   useEffect(() => {
+    console.log('Tab 2: Component mounted, loading structures and reports...')
     loadStructures()
     loadReports()
   }, [loadStructures, loadReports])
 
   useEffect(() => {
+    console.log('Tab 2: useEffect [structureId] triggered, structureId:', structureId)
     if (structureId) {
+      console.log('Tab 2: Calling loadDiscoveryData for structureId:', structureId)
       loadDiscoveryData()
+    } else {
+      console.warn('Tab 2: useEffect: structureId is empty, not loading discovery data')
     }
   }, [structureId, loadDiscoveryData])
 
@@ -577,6 +635,17 @@ const DiscoveryScreen: React.FC = () => {
       }
     })
     
+    // Tree Unification: Apply saved expansion state after grid is ready
+    setTimeout(() => {
+      if (expandedNodes.size > 0 && params.api) {
+        params.api.forEachNode((node: any) => {
+          if (node.data && expandedNodes.has(node.data.node_id)) {
+            node.setExpanded(true)
+          }
+        })
+      }
+    }, 200)
+    
     // Trigger external filter after grid is ready
     setTimeout(() => {
       params.api.onFilterChanged()
@@ -784,6 +853,28 @@ const DiscoveryScreen: React.FC = () => {
             rowHeight={rowHeight}
             headerHeight={density === 'comfortable' ? 45 : 35}
             onGridReady={onGridReady}
+            onRowGroupOpened={(params) => {
+              // Tree Unification: Sync expansion to shared state
+              if (params.node && params.node.data) {
+                const nodeId = params.node.data.node_id
+                setExpandedNodes(prev => {
+                  const next = new Set(prev)
+                  next.add(nodeId)
+                  return next
+                })
+              }
+            }}
+            onRowGroupClosed={(params) => {
+              // Tree Unification: Sync expansion to shared state
+              if (params.node && params.node.data) {
+                const nodeId = params.node.data.node_id
+                setExpandedNodes(prev => {
+                  const next = new Set(prev)
+                  next.delete(nodeId)
+                  return next
+                })
+              }
+            }}
             defaultColDef={{
               sortable: true,
               filter: true,

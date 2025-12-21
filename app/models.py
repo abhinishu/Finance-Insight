@@ -154,7 +154,7 @@ class MetadataRule(Base):
     use_case_id = Column(UUID(as_uuid=True), ForeignKey("use_cases.use_case_id"), nullable=False)
     node_id = Column(String(50), ForeignKey("dim_hierarchy.node_id"), nullable=False)
     predicate_json = Column(JSONB)  # JSON predicate for UI/GenAI state
-    sql_where = Column(Text, nullable=False)  # SQL WHERE clause for execution
+    sql_where = Column(Text, nullable=True)  # SQL WHERE clause for execution (nullable for Phase 1 compatibility)
     logic_en = Column(Text)  # Natural language description for auditability
     last_modified_by = Column(String, nullable=False)
     created_at = Column(TIMESTAMP, nullable=False, server_default=func.now())

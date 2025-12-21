@@ -74,16 +74,25 @@ const ReportRegistrationScreen: React.FC = () => {
   useEffect(() => {
     const loadStructures = async () => {
       try {
+        console.log('Tab 1: Loading structures from:', `${API_BASE_URL}/api/v1/structures`)
         const response = await axios.get<{ structures: Structure[] }>(
           `${API_BASE_URL}/api/v1/structures`
         )
-        setAvailableStructures(response.data.structures)
-        if (response.data.structures.length > 0 && !selectedStructure) {
-          setSelectedStructure(response.data.structures[0].structure_id)
+        console.log('Tab 1: Structures API response:', response.data)
+        const structures = response.data?.structures || []
+        console.log('Tab 1: Found', structures.length, 'structures')
+        setAvailableStructures(structures)
+        if (structures.length > 0 && !selectedStructure) {
+          console.log('Tab 1: Auto-selecting first structure:', structures[0].structure_id)
+          setSelectedStructure(structures[0].structure_id)
+        } else if (structures.length === 0) {
+          console.warn('Tab 1: No structures found')
+          setError('No structures available. Please ensure mock data has been generated.')
         }
       } catch (err: any) {
-        console.error('Failed to load structures:', err)
-        setError('Failed to load available structures')
+        console.error('Tab 1: Failed to load structures:', err)
+        console.error('Tab 1: Error details:', err.response?.data || err.message)
+        setError(`Failed to load available structures: ${err.response?.data?.detail || err.message}`)
       }
     }
     loadStructures()
@@ -92,12 +101,18 @@ const ReportRegistrationScreen: React.FC = () => {
   // Load registered reports
   const loadReports = async () => {
     try {
+      console.log('Tab 1: Loading reports from:', `${API_BASE_URL}/api/v1/reports`)
       const response = await axios.get<ReportRegistration[]>(
         `${API_BASE_URL}/api/v1/reports`
       )
-      setRegisteredReports(response.data)
+      console.log('Tab 1: Reports API response:', response.data)
+      const reports = response.data || []
+      console.log('Tab 1: Found', reports.length, 'reports')
+      setRegisteredReports(reports)
     } catch (err: any) {
-      console.error('Failed to load reports:', err)
+      console.error('Tab 1: Failed to load reports:', err)
+      console.error('Tab 1: Error details:', err.response?.data || err.message)
+      // Don't set error for reports - it's okay if there are no reports yet
     }
   }
 
