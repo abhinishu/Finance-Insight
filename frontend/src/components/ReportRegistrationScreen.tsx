@@ -237,7 +237,7 @@ const ReportRegistrationScreen: React.FC = () => {
     setShowConfirmation(false)
     
     if (!reportName.trim()) {
-      setError('Please enter a report name')
+      setError('Please enter a use case name')
       return
     }
 
@@ -310,7 +310,7 @@ const ReportRegistrationScreen: React.FC = () => {
       {viewMode === 'list' ? (
         <div className="report-library-container">
           <div className="library-header">
-            <h2>Report Library</h2>
+            <h2>Use Case Library</h2>
             <button onClick={handleCreateNew} className="create-new-button">
               + Create New Report
             </button>
@@ -318,9 +318,9 @@ const ReportRegistrationScreen: React.FC = () => {
 
           {registeredReports.length === 0 ? (
             <div className="empty-state">
-              <p>No reports registered yet</p>
+              <p>No use cases registered yet</p>
               <button onClick={handleCreateNew} className="create-first-button">
-                Create Your First Report
+                Create Your First Use Case
               </button>
             </div>
           ) : (
@@ -328,7 +328,7 @@ const ReportRegistrationScreen: React.FC = () => {
               <table className="reports-table">
                 <thead>
                   <tr>
-                    <th>Report Name</th>
+                    <th>Use Case Name</th>
                     <th>Structure</th>
                     <th>Created Date</th>
                     <th>Status</th>
@@ -362,7 +362,7 @@ const ReportRegistrationScreen: React.FC = () => {
       ) : (
         <div className="registration-container">
           <div className="form-header">
-            <h2>{editingReportId ? 'Edit Report' : 'Report Registration'}</h2>
+            <h2>{editingReportId ? 'Edit Use Case' : 'Use Case Registration'}</h2>
             <button onClick={() => setViewMode('list')} className="back-button">
               ← Back to Library
             </button>
@@ -382,7 +382,7 @@ const ReportRegistrationScreen: React.FC = () => {
 
           <div className="form-section">
             <div className="form-group">
-              <label htmlFor="report-name">Report Name *</label>
+              <label htmlFor="report-name">Use Case Name *</label>
               <input
                 id="report-name"
                 type="text"

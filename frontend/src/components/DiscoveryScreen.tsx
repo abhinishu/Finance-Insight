@@ -56,9 +56,10 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000
 const DiscoveryScreen: React.FC = () => {
   const [structureId, setStructureId] = useState<string>('')
   const [availableStructures, setAvailableStructures] = useState<Structure[]>([])
-  const [registeredReports, setRegisteredReports] = useState<any[]>([])
-  const [selectedReportId, setSelectedReportId] = useState<string>('')
-  const [selectedReport, setSelectedReport] = useState<any>(null)
+  const [useCases, setUseCases] = useState<any[]>([])
+  const [selectedUseCaseId, setSelectedUseCaseId] = useState<string>('')
+  const [selectedUseCase, setSelectedUseCase] = useState<any>(null)
+  const [selectedReport, setSelectedReport] = useState<any>(null) // For scope data only
   const [loading, setLoading] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
   const [rowData, setRowData] = useState<any[]>([])
@@ -76,9 +77,9 @@ const DiscoveryScreen: React.FC = () => {
   
   // Load persisted state from localStorage
   useEffect(() => {
-    const savedReportId = localStorage.getItem('finance_insight_selected_report_id')
-    if (savedReportId) {
-      setSelectedReportId(savedReportId)
+    const savedUseCaseId = localStorage.getItem('finance_insight_selected_use_case_id')
+    if (savedUseCaseId) {
+      setSelectedUseCaseId(savedUseCaseId)
     }
   }, [])
   
@@ -100,12 +101,12 @@ const DiscoveryScreen: React.FC = () => {
     }
   }, [structureId])
   
-  // Persist selected report to localStorage
+  // Persist selected use case to localStorage
   useEffect(() => {
-    if (selectedReportId) {
-      localStorage.setItem('finance_insight_selected_report_id', selectedReportId)
+    if (selectedUseCaseId) {
+      localStorage.setItem('finance_insight_selected_use_case_id', selectedUseCaseId)
     }
-  }, [selectedReportId])
+  }, [selectedUseCaseId])
   
   // Persist shared tree state to localStorage (Tab 2 & 3 unification)
   useEffect(() => {
@@ -199,34 +200,59 @@ const DiscoveryScreen: React.FC = () => {
     }
   }, [structureId])
 
-  // Load registered reports
-  const loadReports = useCallback(async () => {
+  // Load use cases (unified data source for all tabs)
+  const loadUseCases = useCallback(async () => {
     try {
-      console.log('Tab 2: Loading reports from:', `${API_BASE_URL}/api/v1/reports`)
-      const response = await axios.get<any[]>(
-        `${API_BASE_URL}/api/v1/reports`
+      console.log('Tab 2: Loading use cases from:', `${API_BASE_URL}/api/v1/use-cases`)
+      const response = await axios.get<{ use_cases: any[] }>(
+        `${API_BASE_URL}/api/v1/use-cases`
       )
-      console.log('Tab 2: Reports API response:', response.data)
-      const reports = response.data || []
-      console.log('Tab 2: Found', reports.length, 'reports')
-      setRegisteredReports(reports)
+      console.log('Tab 2: Use Cases API response:', response.data)
+      const useCasesList = response.data.use_cases || []
+      console.log('Tab 2: Found', useCasesList.length, 'use cases')
+      setUseCases(useCasesList)
+      
+      // Auto-select first use case if available and none selected
+      const savedUseCaseId = localStorage.getItem('finance_insight_selected_use_case_id')
+      if (savedUseCaseId && useCasesList.find((uc: any) => uc.use_case_id === savedUseCaseId)) {
+        setSelectedUseCaseId(savedUseCaseId)
+      } else if (useCasesList.length > 0 && !selectedUseCaseId) {
+        setSelectedUseCaseId(useCasesList[0].use_case_id)
+      }
     } catch (err: any) {
-      console.error('Tab 2: Failed to load reports:', err)
+      console.error('Tab 2: Failed to load use cases:', err)
       console.error('Tab 2: Error details:', err.response?.data || err.message)
-      // Don't set error for reports - it's okay if there are no reports yet
+      // Don't set error for use cases - it's okay if there are no use cases yet
     }
-  }, [])
+  }, [selectedUseCaseId])
 
-  // Load report details when selected
+  // Load use case details when selected
   useEffect(() => {
-    if (selectedReportId) {
-      const report = registeredReports.find(r => r.report_id === selectedReportId)
-      if (report) {
-        setSelectedReport(report)
-        setStructureId(report.atlas_structure_id)
+    if (selectedUseCaseId) {
+      const useCase = useCases.find(uc => uc.use_case_id === selectedUseCaseId)
+      if (useCase) {
+        setSelectedUseCase(useCase)
+        setStructureId(useCase.atlas_structure_id)
+        
+        // Also load ReportRegistration data for scope information (if exists)
+        const loadReportData = async () => {
+          try {
+            const response = await axios.get<any[]>(`${API_BASE_URL}/api/v1/reports`)
+            const report = response.data.find((r: any) => r.report_name === useCase.name)
+            if (report) {
+              setSelectedReport(report)
+            } else {
+              setSelectedReport(null)
+            }
+          } catch (err) {
+            // If reports endpoint fails, continue without scope data
+            setSelectedReport(null)
+          }
+        }
+        loadReportData()
       }
     }
-  }, [selectedReportId, registeredReports])
+  }, [selectedUseCaseId, useCases])
 
   const loadDiscoveryData = useCallback(async () => {
     if (!structureId) return
@@ -361,8 +387,8 @@ const DiscoveryScreen: React.FC = () => {
   useEffect(() => {
     console.log('Tab 2: Component mounted, loading structures and reports...')
     loadStructures()
-    loadReports()
-  }, [loadStructures, loadReports])
+    loadUseCases()
+  }, [loadStructures, loadUseCases])
 
   useEffect(() => {
     console.log('Tab 2: useEffect [structureId] triggered, structureId:', structureId)
@@ -528,6 +554,7 @@ const DiscoveryScreen: React.FC = () => {
     })
 
     // Add dimension columns if they have 'input' scope (removed redundant Group/Product/Desk columns)
+    // Load scope data from ReportRegistration (if available)
     if (selectedReport?.dimension_scopes) {
       const dimScopes = selectedReport.dimension_scopes
       if (dimScopes.region?.includes('input')) {
@@ -559,6 +586,7 @@ const DiscoveryScreen: React.FC = () => {
     })
 
     // Add measure columns if they have 'input' scope
+    // Legacy scope support
     if (selectedReport?.measure_scopes) {
       const measureScopes = selectedReport.measure_scopes
       if (measureScopes.daily?.includes('input')) {
@@ -611,7 +639,7 @@ const DiscoveryScreen: React.FC = () => {
     }
 
     return cols
-  }, [selectedReport, financialFormatter, cellClassRules, nodeNameCellRenderer])
+  }, [selectedUseCase, financialFormatter, cellClassRules, nodeNameCellRenderer])
 
   // Grid ready callback
   const onGridReady = (params: any) => {
@@ -744,39 +772,50 @@ const DiscoveryScreen: React.FC = () => {
     <div className={`discovery-screen ${density}`}>
       <div className="discovery-controls">
         <div className="control-group">
-          <label htmlFor="report-select">Select Report:</label>
+          <label htmlFor="use-case-select">Select Use Case:</label>
           <select
-            id="report-select"
-            value={selectedReportId}
-            onChange={(e) => setSelectedReportId(e.target.value)}
-            disabled={loading || registeredReports.length === 0}
-            className="report-select"
+            id="use-case-select"
+            value={selectedUseCaseId}
+            onChange={(e) => {
+              setSelectedUseCaseId(e.target.value)
+              // Auto-set structure from selected use case
+              const selectedUseCase = useCases.find(uc => uc.use_case_id === e.target.value)
+              if (selectedUseCase && selectedUseCase.atlas_structure_id) {
+                setStructureId(selectedUseCase.atlas_structure_id)
+              }
+            }}
+            disabled={loading || useCases.length === 0}
+            className="use-case-select"
           >
-            <option value="">-- Select a Report --</option>
-            {registeredReports.map((report) => (
-              <option key={report.report_id} value={report.report_id}>
-                {report.report_name}
+            <option value="">-- Select a Use Case --</option>
+            {useCases.map((useCase) => (
+              <option key={useCase.use_case_id} value={useCase.use_case_id}>
+                {useCase.name}
               </option>
             ))}
           </select>
-          <label htmlFor="structure-select">Atlas Structure:</label>
-          <select
-            id="structure-select"
-            value={structureId}
-            onChange={(e) => setStructureId(e.target.value)}
-            disabled={loading || availableStructures.length === 0}
-            className="structure-select"
+          <label htmlFor="structure-display">Atlas Structure:</label>
+          <div 
+            id="structure-display"
+            className="structure-display" 
+            style={{ 
+              padding: '0.5rem 1rem', 
+              background: '#f3f4f6', 
+              border: '1px solid #d1d5db', 
+              borderRadius: '4px',
+              color: '#374151',
+              fontSize: '0.875rem',
+              fontWeight: '500',
+              display: 'inline-block',
+              minWidth: '200px'
+            }}
           >
-            {availableStructures.length === 0 ? (
-              <option value="">Loading structures...</option>
+            {structureId ? (
+              `Structure: ${availableStructures.find(s => s.structure_id === structureId)?.name || structureId}`
             ) : (
-              availableStructures.map((struct) => (
-                <option key={struct.structure_id} value={struct.structure_id}>
-                  {struct.name} ({struct.node_count} nodes)
-                </option>
-              ))
+              'Select a Use Case to view Structure'
             )}
-          </select>
+          </div>
           <button 
             onClick={loadDiscoveryData} 
             disabled={loading || !structureId}

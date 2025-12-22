@@ -338,6 +338,57 @@ def get_discovery_view(
     response = DiscoveryResponse(
         structure_id=structure_id,
         hierarchy=[root_node],
+        reconciliation_data=reconciliation_data
+    )
+    return response
+
+
+@router.get("/fact-values/{field_name}")
+def get_sample_values(field_name: str, limit: int = 5, db: Session = Depends(get_db)):
+    """
+    Get sample values for a given field from fact_pnl_gold table.
+    Used by Field Helper to show users actual values in the database.
+    
+    Args:
+        field_name: Field name (e.g., 'book_id', 'strategy_id')
+        limit: Number of sample values to return (default: 5)
+        db: Database session
+    
+    Returns:
+        List of distinct sample values
+    """
+    from app.models import FactPnlGold
+    from sqlalchemy import distinct, func
+    
+    # Validate field name
+    valid_fields = ['account_id', 'cc_id', 'book_id', 'strategy_id']
+    if field_name not in valid_fields:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid field name. Must be one of: {valid_fields}"
+        )
+    
+    try:
+        # Get distinct values for the field
+        field_attr = getattr(FactPnlGold, field_name)
+        distinct_values = db.query(distinct(field_attr)).limit(limit).all()
+        
+        # Flatten the list of tuples
+        values = [val[0] for val in distinct_values if val[0] is not None]
+        
+        return {
+            "field_name": field_name,
+            "sample_values": values,
+            "count": len(values)
+        }
+    except Exception as e:
+        logger.error(f"Failed to get sample values for {field_name}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to retrieve sample values: {str(e)}"
+        )(
+        structure_id=structure_id,
+        hierarchy=[root_node],
         reconciliation=reconciliation_data
     )
     logger.info(f"Discovery: Response built successfully, hierarchy has {len(response.hierarchy)} root nodes")

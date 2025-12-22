@@ -108,7 +108,8 @@ def list_use_cases(
                 detail=f"Invalid status: {status}. Must be one of: DRAFT, ACTIVE, ARCHIVED"
             )
     
-    use_cases = query.order_by(UseCase.created_at.desc()).all()
+    # Order by name alphabetically for consistent display across tabs
+    use_cases = query.order_by(UseCase.name.asc()).all()
     
     return {
         "use_cases": [
