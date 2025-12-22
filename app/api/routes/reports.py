@@ -89,8 +89,34 @@ def create_report(
     )
     
     db.add(db_report)
+    
+    # CRITICAL: Also create a UseCase record so all tabs use the same data source
+    # Check if UseCase already exists (by name and structure) to prevent duplicates
+    from app.models import UseCase, UseCaseStatus
+    existing_use_case = db.query(UseCase).filter(
+        UseCase.name == report.report_name,
+        UseCase.atlas_structure_id == report.atlas_structure_id
+    ).first()
+    
+    if existing_use_case:
+        # UseCase already exists - update it to ensure it's active
+        existing_use_case.status = UseCaseStatus.ACTIVE
+        existing_use_case.owner_id = report.owner_id
+        use_case = existing_use_case
+    else:
+        # Create new UseCase
+        use_case = UseCase(
+            name=report.report_name,  # Use same name
+            description=f"Use case for {report.report_name}",
+            owner_id=report.owner_id,
+            atlas_structure_id=report.atlas_structure_id,
+            status=UseCaseStatus.ACTIVE
+        )
+        db.add(use_case)
+    
     db.commit()
     db.refresh(db_report)
+    db.refresh(use_case)
     
     return ReportRegistrationResponse(
         report_id=str(db_report.report_id),
@@ -104,6 +130,66 @@ def create_report(
         created_at=db_report.created_at.isoformat(),
         updated_at=db_report.updated_at.isoformat()
     )
+
+
+@router.post("/reports/sync-to-usecases")
+def sync_reports_to_usecases_endpoint(db: Session = Depends(get_db)):
+    """
+    Sync all existing ReportRegistration records to UseCase table.
+    This ensures all tabs use the same data source.
+    
+    Returns:
+        Summary of sync operation
+    """
+    from app.models import UseCase, UseCaseStatus, DimHierarchy
+    
+    reports = db.query(ReportRegistration).all()
+    created_count = 0
+    updated_count = 0
+    skipped_count = 0
+    
+    for report in reports:
+        # Check if UseCase already exists
+        existing_use_case = db.query(UseCase).filter(
+            UseCase.name == report.report_name,
+            UseCase.atlas_structure_id == report.atlas_structure_id
+        ).first()
+        
+        if existing_use_case:
+            # Update existing to ensure it's active
+            existing_use_case.status = UseCaseStatus.ACTIVE
+            existing_use_case.owner_id = report.owner_id
+            updated_count += 1
+        else:
+            # Verify structure exists
+            structure_exists = db.query(DimHierarchy).filter(
+                DimHierarchy.atlas_source == report.atlas_structure_id
+            ).first()
+            
+            if not structure_exists:
+                skipped_count += 1
+                continue
+            
+            # Create new UseCase
+            use_case = UseCase(
+                name=report.report_name,
+                description=f"Use case for {report.report_name}",
+                owner_id=report.owner_id,
+                atlas_structure_id=report.atlas_structure_id,
+                status=UseCaseStatus.ACTIVE
+            )
+            db.add(use_case)
+            created_count += 1
+    
+    db.commit()
+    
+    return {
+        "message": "Sync completed",
+        "total_reports": len(reports),
+        "created": created_count,
+        "updated": updated_count,
+        "skipped": skipped_count
+    }
 
 
 @router.get("/reports", response_model=List[ReportRegistrationResponse])
@@ -253,6 +339,19 @@ def update_report(
     
     if report_update.dimension_scopes is not None:
         report.dimension_scopes = report_update.dimension_scopes
+    
+    # CRITICAL: Also update the corresponding UseCase record
+    from app.models import UseCase
+    use_case = db.query(UseCase).filter(
+        UseCase.name == report.report_name,
+        UseCase.atlas_structure_id == report.atlas_structure_id
+    ).first()
+    
+    if use_case:
+        if report_update.report_name is not None:
+            use_case.name = report_update.report_name
+        if report_update.atlas_structure_id is not None:
+            use_case.atlas_structure_id = report_update.atlas_structure_id
     
     db.commit()
     db.refresh(report)
