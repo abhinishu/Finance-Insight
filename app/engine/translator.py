@@ -18,6 +18,8 @@ import time
 from functools import wraps
 from typing import Any, Dict, List, Optional, Tuple
 
+from app.core.config import get_google_api_key
+
 try:
     import google.generativeai as genai
     GEMINI_AVAILABLE = True
@@ -128,12 +130,8 @@ def initialize_gemini():
             "Install it with: pip install google-generativeai==0.3.0"
         )
     
-    api_key = os.getenv('GEMINI_API_KEY')
-    if not api_key:
-        raise ValueError(
-            "GEMINI_API_KEY environment variable is not set. "
-            "Please set it to your Google Gemini API key."
-        )
+    # Use robust config loader with security hardening
+    api_key = get_google_api_key()
     genai.configure(api_key=api_key)
     
     # Note: system_instruction parameter not available in google-generativeai 0.3.0

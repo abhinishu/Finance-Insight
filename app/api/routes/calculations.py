@@ -19,6 +19,7 @@ from app.services.calculator import calculate_use_case
 from pydantic import BaseModel
 from typing import List, Dict, Any
 from app.engine.translator import translate_natural_language_to_json
+from app.core.config import get_google_api_key
 
 logger = logging.getLogger(__name__)
 
@@ -390,11 +391,19 @@ Use professional accounting language. Generate only the summary sentence, no add
         # Use Gemini to generate narrative
         try:
             import google.generativeai as genai
-            import os
             
-            api_key = os.getenv("GEMINI_API_KEY")
-            if not api_key:
-                # Fallback narrative with accounting terminology
+            # Use robust config loader with security hardening
+            # This will raise SystemExit if no key is found (as per security requirements)
+            api_key = get_google_api_key()
+            
+            try:
+                genai.configure(api_key=api_key)
+                model = genai.GenerativeModel('gemini-pro')
+                response = model.generate_content(prompt)
+                narrative = response.text.strip()
+            except Exception as api_error:
+                # Fallback narrative if API call fails (but key was found)
+                logger.warning(f"Gemini API call failed, using fallback narrative: {api_error}")
                 if request.top_rules:
                     largest_rule = max(request.top_rules, key=lambda r: r.get('impact', 0))
                     narrative = (
@@ -406,11 +415,6 @@ Use professional accounting language. Generate only the summary sentence, no add
                         f"Total reconciliation plug of ${request.total_plug:,.2f} reflects "
                         f"management adjustments to the baseline GL."
                     )
-            else:
-                genai.configure(api_key=api_key)
-                model = genai.GenerativeModel('gemini-pro')
-                response = model.generate_content(prompt)
-                narrative = response.text.strip()
                 
                 # Ensure it's a single sentence
                 if len(narrative) > 200:

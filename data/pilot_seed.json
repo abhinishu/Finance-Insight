@@ -1,0 +1,17 @@
+{
+  "categories": [
+    { "code": "REV_CORE", "name": "Core Service Revenue", "type": "Revenue", "parent": null },
+    { "code": "REV_SUB", "name": "Subscription Income", "type": "Revenue", "parent": "REV_CORE" },
+    { "code": "COGS_LABOR", "name": "Direct Labor Costs", "type": "COGS", "parent": null },
+    { "code": "COGS_INFRA", "name": "Cloud & Hosting", "type": "COGS", "parent": null },
+    { "code": "OPEX_GA", "name": "G&A Expenses", "type": "Operating Expense", "parent": null },
+    { "code": "OPEX_MKT", "name": "Sales & Marketing", "type": "Operating Expense", "parent": "OPEX_GA" },
+    { "code": "FIN_INT", "name": "Interest & Finance", "type": "Non-Operating", "parent": null },
+    { "code": "TAX_CORP", "name": "Income Tax Provision", "type": "Tax", "parent": null }
+  ],
+  "pilot_data": [
+    { "category_code": "REV_SUB", "amount": 125000.00, "period": "2025-Q4", "note": "Target Exceeded" },
+    { "category_code": "COGS_INFRA", "amount": -12000.50, "period": "2025-Q4", "note": "AWS Optimization" },
+    { "category_code": "OPEX_MKT", "amount": -45000.00, "period": "2025-Q4", "note": "New Pilot Campaign" }
+  ]
+}
