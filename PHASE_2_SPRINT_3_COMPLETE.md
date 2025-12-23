@@ -248,7 +248,7 @@ Successfully implemented the **Waterfall Calculation Engine** and **Executive Da
 
 ### Environment Variables
 - **`.env`** file updated with:
-  - `GEMINI_API_KEY=AIzaSyDscSZYnxO6DgUp34JS5_7x-7n-_wLT4do`
+  - `GEMINI_API_KEY=your_api_key_here` (use actual key from secure storage)
   - `DATABASE_URL=postgresql://finance_user:finance_pass@localhost:5432/finance_insight`
 
 ### Dependencies
