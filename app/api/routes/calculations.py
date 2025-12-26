@@ -16,6 +16,9 @@ from decimal import Decimal
 from app.api.schemas import CalculationResponse, ResultsResponse, ResultsNode
 from app.models import DimHierarchy, UseCase, UseCaseRun, FactCalculatedResult, MetadataRule, CalculationRun, CalculationRun
 from app.services.calculator import calculate_use_case
+from pydantic import BaseModel
+from typing import List, Dict, Any
+from app.engine.translator import translate_natural_language_to_json
 
 logger = logging.getLogger(__name__)
 
@@ -563,4 +566,299 @@ def get_calculation_results(
         hierarchy=[root_node] if root_node else [],
         is_outdated=is_outdated
     )
+
+
+class NarrativeRequest(BaseModel):
+    total_plug: float
+    top_rules: List[Dict[str, Any]]
+
+
+class NarrativeResponse(BaseModel):
+    narrative: str
+
+
+@router.post("/use-cases/{use_case_id}/narrative", response_model=NarrativeResponse)
+def generate_management_narrative(
+    use_case_id: UUID,
+    request: NarrativeRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Generate a management narrative summary using Gemini AI.
+    
+    Creates a one-sentence executive summary describing the total plug
+    and the top 3 high-impact rules that drove the adjustment.
+    
+    Args:
+        use_case_id: Use case UUID
+        request: NarrativeRequest with total_plug and top_rules
+        db: Database session
+    
+    Returns:
+        NarrativeResponse with AI-generated narrative
+    """
+    try:
+        # Build prompt for Gemini
+        rules_text = ""
+        if request.top_rules:
+            rules_list = []
+            for i, rule in enumerate(request.top_rules, 1):
+                rules_list.append(
+                    f"{i}. {rule.get('node', 'Unknown Node')}: {rule.get('logic', 'N/A')} "
+                    f"(Impact: ${rule.get('impact', 0):,.2f})"
+                )
+            rules_text = "\n".join(rules_list)
+        else:
+            rules_text = "No specific rules identified."
+        
+        # Handle empty rules case
+        if not request.top_rules or len(request.top_rules) == 0:
+            return NarrativeResponse(
+                narrative="No management adjustments have been proposed for this use case."
+            )
+        
+        prompt = f"""Act as a Senior Financial Controller. Analyze the rule impacts and the total Reconciliation Plug.
+
+Total Reconciliation Plug: ${request.total_plug:,.2f}
+
+Top High-Impact Rules:
+{rules_text}
+
+Provide a one-sentence summary that:
+1. Highlights the largest driver of the adjustment using professional accounting terminology (e.g., 'management override,' 'normalization,' 'intercompany elimination,' 'reclassification')
+2. States the total adjustment amount in clear financial terms
+3. Is suitable for executive-level financial reporting
+4. Is exactly one sentence, no more than 50 words
+
+Use professional accounting language. Generate only the summary sentence, no additional text:"""
+
+        # Use Gemini to generate narrative
+        try:
+            import google.generativeai as genai
+            import os
+            
+            api_key = os.getenv("GEMINI_API_KEY")
+            if not api_key:
+                # Fallback narrative with accounting terminology
+                if request.top_rules:
+                    largest_rule = max(request.top_rules, key=lambda r: r.get('impact', 0))
+                    narrative = (
+                        f"Management override of ${request.total_plug:,.2f} primarily driven by "
+                        f"{largest_rule.get('node', 'selected nodes')} normalization adjustments."
+                    )
+                else:
+                    narrative = (
+                        f"Total reconciliation plug of ${request.total_plug:,.2f} reflects "
+                        f"management adjustments to the baseline GL."
+                    )
+            else:
+                genai.configure(api_key=api_key)
+                model = genai.GenerativeModel('gemini-pro')
+                response = model.generate_content(prompt)
+                narrative = response.text.strip()
+                
+                # Ensure it's a single sentence
+                if len(narrative) > 200:
+                    narrative = narrative.split('.')[0] + '.'
+        except Exception as e:
+            logger.warning(f"Failed to generate narrative with Gemini: {e}")
+            # Fallback narrative with accounting terminology
+            if request.top_rules:
+                largest_rule = max(request.top_rules, key=lambda r: r.get('impact', 0))
+                narrative = (
+                    f"Management override of ${request.total_plug:,.2f} primarily driven by "
+                    f"{largest_rule.get('node', 'selected nodes')} normalization adjustments."
+                )
+            else:
+                narrative = (
+                    f"Total reconciliation plug of ${request.total_plug:,.2f} reflects "
+                    f"management adjustments to the baseline GL."
+                )
+        
+        return NarrativeResponse(narrative=narrative)
+    
+    except Exception as e:
+        logger.error(f"Failed to generate management narrative: {e}", exc_info=True)
+        # Return fallback narrative with accounting terminology
+
+
+@router.get("/use-cases/{use_case_id}/execution-plan")
+def get_execution_plan(
+    use_case_id: UUID,
+    include_summary: bool = True,
+    db: Session = Depends(get_db)
+):
+    """
+    Get execution plan for a use case before running calculation.
+    Shows the order of operations: Leaf rules, Parent aggregation, Overrides.
+    
+    Args:
+        use_case_id: Use case UUID
+        db: Database session
+    
+    Returns:
+        Execution plan with step-by-step breakdown
+    """
+    from app.models import MetadataRule, DimHierarchy
+    
+    # Validate use case exists
+    use_case = db.query(UseCase).filter(UseCase.use_case_id == use_case_id).first()
+    if not use_case:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Use case '{use_case_id}' not found"
+        )
+    
+    # Get all active rules for this use case
+    rules = db.query(MetadataRule).filter(
+        MetadataRule.use_case_id == use_case_id,
+        MetadataRule.is_active == True
+    ).all()
+    
+    # Get hierarchy to determine leaf vs parent nodes
+    hierarchy_nodes = db.query(DimHierarchy).filter(
+        DimHierarchy.atlas_source == use_case.atlas_structure_id
+    ).all()
+    
+    leaf_node_ids = {node.node_id for node in hierarchy_nodes if node.is_leaf}
+    
+    # Categorize rules
+    leaf_rules = [r for r in rules if r.node_id in leaf_node_ids]
+    parent_rules = [r for r in rules if r.node_id not in leaf_node_ids]
+    
+    # Build execution steps
+    steps = []
+    if leaf_rules:
+        steps.append({
+            "step": 1,
+            "description": f"Apply {len(leaf_rules)} Leaf-node rule{'' if len(leaf_rules) == 1 else 's'}"
+        })
+    
+    # Count parent nodes that will be aggregated
+    parent_node_count = len(set(r.node_id for r in parent_rules))
+    if parent_node_count > 0:
+        steps.append({
+            "step": len(steps) + 1,
+            "description": f"Aggregate to {parent_node_count} Parent node{'' if parent_node_count == 1 else 's'}"
+        })
+    
+    if parent_rules:
+        steps.append({
+            "step": len(steps) + 1,
+            "description": f"Apply {len(parent_rules)} Regional override{'' if len(parent_rules) == 1 else 's'}"
+        })
+    
+    if not steps:
+        steps.append({
+            "step": 1,
+            "description": "Calculate Reconciliation Plug (no rules to apply)"
+        })
+    
+    # Generate business rules summary using LLM
+    business_summary = None
+    if include_summary and rules:
+        try:
+            from app.engine.translator import generate_business_rules_summary
+            # Get node names from hierarchy
+            node_name_map = {node.node_id: node.node_name for node in hierarchy_nodes}
+            rules_data = [
+                {
+                    "node_id": r.node_id,
+                    "node_name": node_name_map.get(r.node_id, r.node_id),
+                    "logic_en": r.logic_en,
+                    "is_leaf": r.node_id in leaf_node_ids
+                }
+                for r in rules
+            ]
+            business_summary = generate_business_rules_summary(rules_data)
+        except Exception as e:
+            logger.warning(f"Failed to generate business rules summary: {e}")
+            business_summary = None
+    
+    return {
+        "use_case_id": str(use_case_id),
+        "total_rules": len(rules),
+        "leaf_rules": len(leaf_rules),
+        "parent_rules": len(parent_rules),
+        "steps": steps,
+        "business_summary": business_summary
+    }
+
+
+class ArchiveSnapshotRequest(BaseModel):
+    snapshot_name: str
+    rules_snapshot: List[Dict[str, Any]]
+    results_snapshot: List[Dict[str, Any]]
+    notes: Optional[str] = None
+    version_tag: Optional[str] = None
+    created_by: str = "system"
+
+
+@router.post("/use-cases/{use_case_id}/archive")
+def archive_snapshot(
+    use_case_id: UUID,
+    request: ArchiveSnapshotRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Lock and archive a snapshot of current rules and results.
+    
+    Args:
+        use_case_id: Use case UUID
+        request: Request body with snapshot_name, rules_snapshot, results_snapshot, notes, created_by
+        db: Database session
+    
+    Returns:
+        Snapshot ID
+    """
+    from app.models import HistorySnapshot
+    
+    # Validate use case exists
+    use_case = db.query(UseCase).filter(UseCase.use_case_id == use_case_id).first()
+    if not use_case:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Use case '{use_case_id}' not found"
+        )
+    
+    # Determine version number
+    existing_snapshots = db.query(HistorySnapshot).filter(
+        HistorySnapshot.use_case_id == use_case_id
+    ).order_by(HistorySnapshot.snapshot_date.desc()).all()
+    
+    if not existing_snapshots:
+        version_tag = "v1.0"
+    else:
+        # Extract version number from latest snapshot
+        latest_version = existing_snapshots[0].version_tag or "v1.0"
+        try:
+            # Extract version number (e.g., "v1.0" -> 1.0)
+            version_num = float(latest_version.replace('v', ''))
+            new_version_num = version_num + 0.1
+            version_tag = f"v{new_version_num:.1f}"
+        except (ValueError, AttributeError):
+            # Fallback if version format is unexpected
+            version_tag = f"v{len(existing_snapshots) + 1}.0"
+    
+    # Create snapshot
+    snapshot = HistorySnapshot(
+        use_case_id=use_case_id,
+        snapshot_name=request.snapshot_name,
+        created_by=request.created_by,
+        rules_snapshot=request.rules_snapshot,
+        results_snapshot=request.results_snapshot,
+        notes=request.notes,
+        version_tag=version_tag
+    )
+    
+    db.add(snapshot)
+    db.commit()
+    db.refresh(snapshot)
+    
+    return {
+        "snapshot_id": str(snapshot.snapshot_id),
+        "snapshot_name": snapshot.snapshot_name,
+        "snapshot_date": snapshot.snapshot_date.isoformat(),
+        "version_tag": snapshot.version_tag
+    }
 

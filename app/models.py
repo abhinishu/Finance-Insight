@@ -61,6 +61,7 @@ class UseCase(Base):
     # Relationships
     rules = relationship("MetadataRule", back_populates="use_case", cascade="all, delete-orphan")
     runs = relationship("UseCaseRun", back_populates="use_case", cascade="all, delete-orphan")
+    snapshots = relationship("HistorySnapshot", back_populates="use_case", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<UseCase(id={self.use_case_id}, name='{self.name}', status={self.status})>"
@@ -244,6 +245,7 @@ class ReportRegistration(Base):
         return f"<ReportRegistration(id={self.report_id}, name='{self.report_name}')>"
 
 
+<<<<<<< HEAD
 class DimDictionary(Base):
     """
     Dictionary dimension - portable metadata for categories like BOOK, STRATEGY, PRODUCT_TYPE, etc.
@@ -315,3 +317,31 @@ class CalculationRun(Base):
 
     def __repr__(self):
         return f"<CalculationRun(id={self.id}, date={self.pnl_date}, name='{self.run_name}', status={self.status})>"
+
+
+class HistorySnapshot(Base):
+    """
+    History snapshots table - locks and archives rule-sets and results.
+    Allows users to "freeze" a month-end report so it never changes.
+    """
+    __tablename__ = "history_snapshots"
+
+    snapshot_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    use_case_id = Column(UUID(as_uuid=True), ForeignKey("use_cases.use_case_id"), nullable=False)
+    snapshot_name = Column(String(200), nullable=False)
+    snapshot_date = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    created_by = Column(String(100), nullable=False)
+    
+    # JSONB snapshots
+    rules_snapshot = Column(JSONB)  # Array of rule objects: [{node_id, logic_en, sql_where, ...}]
+    results_snapshot = Column(JSONB)  # Array of result objects: [{node_id, natural_value, adjusted_value, plug, ...}]
+    
+    # Metadata
+    notes = Column(Text, nullable=True)
+    version_tag = Column(String(50), nullable=True)
+    
+    # Relationships
+    use_case = relationship("UseCase", back_populates="snapshots")
+
+    def __repr__(self):
+        return f"<HistorySnapshot(id={self.snapshot_id}, use_case={self.use_case_id}, name='{self.snapshot_name}')>"

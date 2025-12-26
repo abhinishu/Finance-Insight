@@ -451,3 +451,62 @@ def translate_rule(
     logger.info(f"Successfully translated rule: {logic_en} → {sql_where}")
     return predicate_json, sql_where, [], True
 
+
+@retry_on_quota
+def generate_business_rules_summary(rules: List[Dict[str, Any]]) -> str:
+    """
+    Generate a one-sentence LLM summary of combined business rules.
+    
+    Args:
+        rules: List of rule dictionaries with logic_en, node_name, etc.
+    
+    Returns:
+        One-sentence summary of the combined rules
+    """
+    if not rules:
+        return "No business rules defined. Calculation will use natural GL values only."
+    
+    try:
+        model = initialize_gemini()
+        
+        # Build prompt with rule summaries
+        rules_text = "\n".join([
+            f"- {rule.get('node_name', rule.get('node_id', 'Unknown'))}: {rule.get('logic_en', 'No description')}"
+            for rule in rules
+        ])
+        
+        prompt = f"""Generate a concise one-sentence business summary of these financial rules:
+
+{rules_text}
+
+The summary should:
+- Be executive-friendly (no technical jargon)
+- Highlight the main actions (exclude, normalize, adjust, etc.)
+- Mention key dimensions affected (books, strategies, desks, etc.)
+- Be under 100 words
+
+Example format: "This execution will exclude 2 internal books and normalize Strategy 'CORE' across 12 desks."
+
+Summary:"""
+        
+        response = model.generate_content(
+            prompt,
+            generation_config={
+                "temperature": 0.3,
+                "max_output_tokens": 150,
+            }
+        )
+        
+        summary = response.text.strip()
+        # Remove quotes if present
+        summary = summary.strip('"').strip("'")
+        
+        logger.info(f"Generated business rules summary: {summary}")
+        return summary
+        
+    except Exception as e:
+        logger.error(f"Failed to generate business rules summary: {e}")
+        # Fallback summary
+        rule_count = len(rules)
+        leaf_count = sum(1 for r in rules if r.get('is_leaf', False))
+        return f"This execution will apply {rule_count} business rule{'' if rule_count == 1 else 's'} ({leaf_count} leaf-level, {rule_count - leaf_count} parent-level) to adjust the financial baseline."

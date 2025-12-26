@@ -688,10 +688,19 @@ const RuleEditor: React.FC = () => {
       const useCasesList = response.data.use_cases || []
       setUseCases(useCasesList)
       
-      // Auto-select first use case if available
+      // Auto-select first use case if available (but check localStorage first)
       if (useCasesList.length > 0 && !selectedUseCaseId) {
-        setSelectedUseCaseId(useCasesList[0].use_case_id)
-        setSelectedUseCase(useCasesList[0])
+        // Check for saved selection
+        const savedUseCaseId = localStorage.getItem('finance_insight_selected_use_case_id')
+        if (savedUseCaseId && useCasesList.find(uc => uc.use_case_id === savedUseCaseId)) {
+          setSelectedUseCaseId(savedUseCaseId)
+          const savedUseCase = useCasesList.find(uc => uc.use_case_id === savedUseCaseId)
+          if (savedUseCase) setSelectedUseCase(savedUseCase)
+        } else {
+          // Auto-select first use case
+          setSelectedUseCaseId(useCasesList[0].use_case_id)
+          setSelectedUseCase(useCasesList[0])
+        }
       }
     } catch (err: any) {
       console.error('Failed to load use cases:', err)
@@ -1102,6 +1111,27 @@ const RuleEditor: React.FC = () => {
     loadLastRun()
   }, [selectedUseCaseId])
 
+  // Load sample values for a field
+  const loadSampleValues = async (fieldName: string) => {
+    if (sampleValues.has(fieldName) || loadingSamples.has(fieldName)) return
+
+    setLoadingSamples(prev => new Set(prev).add(fieldName))
+    try {
+      const response = await axios.get(
+        `${API_BASE_URL}/api/v1/fact-values/${fieldName}?limit=5`
+      )
+      setSampleValues(prev => new Map(prev).set(fieldName, response.data.sample_values || []))
+    } catch (err) {
+      console.error(`Failed to load sample values for ${fieldName}:`, err)
+    } finally {
+      setLoadingSamples(prev => {
+        const next = new Set(prev)
+        next.delete(fieldName)
+        return next
+      })
+    }
+  }
+
   // Available schema fields for Field Helper Tag Cloud
   const availableFieldsForHelper = [
     { field: 'book_id', label: 'Book ID', type: 'String' },
@@ -1113,6 +1143,14 @@ const RuleEditor: React.FC = () => {
     { field: 'mtd_pnl', label: 'MTD P&L', type: 'Numeric' },
     { field: 'ytd_pnl', label: 'YTD P&L', type: 'Numeric' },
   ]
+
+  // Sample values state for Field Helper
+  const [sampleValues, setSampleValues] = useState<Map<string, string[]>>(new Map())
+  const [loadingSamples, setLoadingSamples] = useState<Set<string>>(new Set())
+  
+  // Autocomplete state for value input
+  const [autocompleteOpen, setAutocompleteOpen] = useState<Map<number, boolean>>(new Map())
+  const [autocompleteFilter, setAutocompleteFilter] = useState<Map<number, string>>(new Map())
 
   // Status Pill Renderer for Business Rule column
   const BusinessRuleCellRenderer: React.FC<ICellRendererParams> = (params) => {
@@ -1533,6 +1571,20 @@ const RuleEditor: React.FC = () => {
     setConditions(updated)
     // Clear preview when conditions change
     setRulePreview(null)
+    
+    // Load sample values when field changes
+    if (field === 'field' && value) {
+      loadSampleValues(value)
+    }
+    
+    // Show autocomplete when typing in value field
+    if (field === 'value') {
+      setAutocompleteFilter(prev => new Map(prev).set(index, value))
+      const fieldName = updated[index].field
+      if (fieldName && !sampleValues.has(fieldName)) {
+        loadSampleValues(fieldName)
+      }
+    }
   }
 
   // Standard Mode: Generate Rule from Conditions
@@ -1805,13 +1857,67 @@ const RuleEditor: React.FC = () => {
     }
   }
 
-  // Run Waterfall Calculation
-  const handleRunCalculation = async () => {
+  // Pre-Flight Execution Plan Modal (Rule Sequence Review)
+  const [preFlightModalOpen, setPreFlightModalOpen] = useState<boolean>(false)
+  const [executionPlan, setExecutionPlan] = useState<any>(null)
+  const [ruleSequence, setRuleSequence] = useState<any[]>([])
+  const [acknowledged, setAcknowledged] = useState<boolean>(false)
+
+  // Load Execution Plan (Pre-Flight) with Rule Sequence Review
+  const loadExecutionPlan = async () => {
+    if (!selectedUseCaseId) return
+
+    try {
+      // Load execution plan
+      const planResponse = await axios.get(
+        `${API_BASE_URL}/api/v1/use-cases/${selectedUseCaseId}/execution-plan`
+      )
+      setExecutionPlan(planResponse.data)
+      
+      // Load all active rules for sequence review
+      const rulesResponse = await axios.get(
+        `${API_BASE_URL}/api/v1/use-cases/${selectedUseCaseId}/rules`
+      )
+      const rules = rulesResponse.data || []
+      
+      // Build rule sequence with English summary and technical predicate
+      const sequence = rules.map((rule: any, index: number) => ({
+        step: index + 1,
+        node_id: rule.node_id,
+        node_name: rule.node_name || rule.node_id,
+        english_summary: rule.logic_en || 'No description',
+        technical_predicate: rule.sql_where || rule.predicate_json ? JSON.stringify(rule.predicate_json || {}) : 'N/A',
+        is_leaf: rule.is_leaf || false
+      }))
+      
+      setRuleSequence(sequence)
+      setAcknowledged(false) // Reset acknowledgment
+      setPreFlightModalOpen(true)
+    } catch (err: any) {
+      console.error('Failed to load execution plan:', err)
+      alert('Failed to load execution plan. Please try again.')
+    }
+  }
+
+  // Handle Execute Business Rules (with Pre-Flight)
+  const handleExecuteBusinessRules = async () => {
     if (!selectedUseCaseId) {
       setError('Please select a use case first.')
       return
     }
 
+    // Show Pre-Flight modal first
+    await loadExecutionPlan()
+  }
+
+  // Confirm and Run Calculation (from Pre-Flight modal)
+  const handleConfirmAndRun = async () => {
+    if (!acknowledged) {
+      alert('Please acknowledge that you have reviewed the execution sequence.')
+      return
+    }
+    
+    setPreFlightModalOpen(false)
     setCalculating(true)
     setError(null) // Clear error when new calculation starts
     setErrorDetails(null) // Clear error details
@@ -1911,7 +2017,7 @@ const RuleEditor: React.FC = () => {
 
   const handleConfirmCalculation = () => {
     setAuditDrawerOpen(false)
-    handleRunCalculation()
+    handleExecuteBusinessRules()
   }
 
   return (
@@ -1935,18 +2041,30 @@ const RuleEditor: React.FC = () => {
           </select>
         </div>
         <div className="header-right">
+          {/* Execute Business Rules button - consolidated to global header */}
           <button
-            className="calculate-button"
-            onClick={handleRunCalculation}
+            className="execute-business-rules-btn-primary"
+            onClick={handleExecuteBusinessRules}
             disabled={calculating || !selectedUseCaseId}
+            style={{ 
+              background: 'linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)',
+              color: 'white',
+              border: 'none',
+              padding: '0.75rem 1.5rem',
+              borderRadius: '6px',
+              fontSize: '1rem',
+              fontWeight: '600',
+              cursor: calculating || !selectedUseCaseId ? 'not-allowed' : 'pointer',
+              opacity: calculating || !selectedUseCaseId ? 0.6 : 1
+            }}
           >
             {calculating ? (
               <>
                 <span className="spinner"></span>
-                Calculating Waterfall...
+                Executing...
               </>
             ) : (
-              'Run Waterfall Calculation'
+              'Execute Business Rules'
             )}
           </button>
         </div>
@@ -2065,7 +2183,7 @@ const RuleEditor: React.FC = () => {
           </button>
           <button
             className="calculate-button"
-            onClick={handleRunCalculation}
+            onClick={handleExecuteBusinessRules}
             disabled={calculating || !selectedUseCaseId || isCalculationOutdated}
             title={isCalculationOutdated ? 'Rules have changed. Re-run calculation required.' : ''}
           >
@@ -2239,38 +2357,65 @@ const RuleEditor: React.FC = () => {
                   <div className="field-helper">
                     <div className="field-helper-label">Available Fields:</div>
                     <div className="field-tag-cloud">
-                      {availableFieldsForHelper.map((field) => (
-                        <span
-                          key={field.field}
-                          className="field-tag"
-                          onClick={() => {
-                            const textarea = aiPromptRef.current
-                            if (textarea) {
-                              const start = textarea.selectionStart || 0
-                              const end = textarea.selectionEnd || 0
-                              const currentPrompt = aiPrompt || ''
-                              const before = currentPrompt.substring(0, start)
-                              const after = currentPrompt.substring(end)
-                              const newPrompt = `${before}${field.field}${after}`
-                              setAiPrompt(newPrompt)
-                              // Restore cursor position after field name
-                              setTimeout(() => {
-                                textarea.focus()
-                                const newCursorPos = start + field.field.length
-                                textarea.setSelectionRange(newCursorPos, newCursorPos)
-                              }, 0)
-                            } else {
-                              // Fallback if ref not available
-                              const currentPrompt = aiPrompt || ''
-                              const newPrompt = currentPrompt ? `${currentPrompt} ${field.field}` : field.field
-                              setAiPrompt(newPrompt)
-                            }
-                          }}
-                          title={`${field.label} (${field.type}) - Click to insert`}
-                        >
-                          {field.label}
-                        </span>
-                      ))}
+                      {availableFieldsForHelper.map((field) => {
+                        const samples = sampleValues.get(field.field) || []
+                        const isLoading = loadingSamples.has(field.field)
+                        const showSamples = ['book_id', 'strategy_id', 'account_id', 'cc_id'].includes(field.field)
+                        
+                        return (
+                          <div key={field.field} className="field-tag-wrapper" style={{ position: 'relative' }}>
+                            <span
+                              className="field-tag"
+                              onClick={() => {
+                                const textarea = aiPromptRef.current
+                                if (textarea) {
+                                  const start = textarea.selectionStart || 0
+                                  const end = textarea.selectionEnd || 0
+                                  const currentPrompt = aiPrompt || ''
+                                  const before = currentPrompt.substring(0, start)
+                                  const after = currentPrompt.substring(end)
+                                  const newPrompt = `${before}${field.field}${after}`
+                                  setAiPrompt(newPrompt)
+                                  // Restore cursor position after field name
+                                  setTimeout(() => {
+                                    textarea.focus()
+                                    const newCursorPos = start + field.field.length
+                                    textarea.setSelectionRange(newCursorPos, newCursorPos)
+                                  }, 0)
+                                } else {
+                                  // Fallback if ref not available
+                                  const currentPrompt = aiPrompt || ''
+                                  const newPrompt = currentPrompt ? `${currentPrompt} ${field.field}` : field.field
+                                  setAiPrompt(newPrompt)
+                                }
+                              }}
+                              onMouseEnter={() => {
+                                if (showSamples && samples.length === 0 && !isLoading) {
+                                  loadSampleValues(field.field)
+                                }
+                              }}
+                              title={`${field.label} (${field.type}) - Click to insert`}
+                            >
+                              {field.label}
+                            </span>
+                            {showSamples && samples.length > 0 && (
+                              <div className="field-samples-tooltip">
+                                <div className="field-samples-header">Sample Values:</div>
+                                <div className="field-samples-list">
+                                  {samples.map((val, idx) => (
+                                    <span key={idx} className="field-sample-value">{val}</span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            {isLoading && (
+                              <div className="field-samples-tooltip">
+                                <div className="field-samples-loading">Loading samples...</div>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
                     </div>
                   </div>
                   
@@ -2326,22 +2471,93 @@ const RuleEditor: React.FC = () => {
                           </option>
                         ))}
                       </select>
-                      <input
-                        type="text"
-                        className="condition-value"
-                        value={typeof condition.value === 'string' ? condition.value : condition.value.join(', ')}
-                        onChange={(e) => {
-                          const value = (condition.operator === 'in' || condition.operator === 'not_in')
-                            ? e.target.value
-                            : e.target.value
-                          handleConditionChange(index, 'value', value)
-                        }}
-                        placeholder={
-                          condition.operator === 'in' || condition.operator === 'not_in'
-                            ? 'Comma-separated values (e.g., B01, B02)'
-                            : 'Enter value...'
-                        }
-                      />
+                      <div style={{ position: 'relative', width: '100%' }}>
+                        <input
+                          type="text"
+                          className="condition-value"
+                          value={typeof condition.value === 'string' ? condition.value : condition.value.join(', ')}
+                          onChange={(e) => {
+                            const value = (condition.operator === 'in' || condition.operator === 'not_in')
+                              ? e.target.value
+                              : e.target.value
+                            handleConditionChange(index, 'value', value)
+                            setAutocompleteOpen(prev => new Map(prev).set(index, true))
+                          }}
+                          onFocus={() => {
+                            if (condition.field) {
+                              loadSampleValues(condition.field)
+                              setAutocompleteOpen(prev => new Map(prev).set(index, true))
+                            }
+                          }}
+                          onBlur={() => {
+                            // Delay closing to allow click on suggestion
+                            setTimeout(() => {
+                              setAutocompleteOpen(prev => {
+                                const next = new Map(prev)
+                                next.set(index, false)
+                                return next
+                              })
+                            }, 200)
+                          }}
+                          placeholder={
+                            condition.operator === 'in' || condition.operator === 'not_in'
+                              ? 'Comma-separated values (e.g., B01, B02)'
+                              : 'Enter value or select from suggestions'
+                          }
+                        />
+                        {/* Autocomplete Dropdown */}
+                        {autocompleteOpen.get(index) && condition.field && sampleValues.has(condition.field) && (
+                          <div 
+                            className="autocomplete-dropdown"
+                            style={{
+                              position: 'absolute',
+                              top: '100%',
+                              left: 0,
+                              right: 0,
+                              background: 'white',
+                              border: '1px solid #d1d5db',
+                              borderRadius: '4px',
+                              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+                              maxHeight: '200px',
+                              overflowY: 'auto',
+                              zIndex: 1000,
+                              marginTop: '4px'
+                            }}
+                          >
+                            {sampleValues.get(condition.field)!
+                              .filter(val => {
+                                const filter = autocompleteFilter.get(index) || ''
+                                return !filter || val.toLowerCase().includes(filter.toLowerCase())
+                              })
+                              .map((val, valIdx) => (
+                                <div
+                                  key={valIdx}
+                                  onClick={() => {
+                                    handleConditionChange(index, 'value', val)
+                                    setAutocompleteOpen(prev => {
+                                      const next = new Map(prev)
+                                      next.set(index, false)
+                                      return next
+                                    })
+                                  }}
+                                  style={{
+                                    padding: '0.5rem',
+                                    cursor: 'pointer',
+                                    borderBottom: '1px solid #f3f4f6'
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.background = '#f3f4f6'
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.currentTarget.style.background = 'white'
+                                  }}
+                                >
+                                  {val}
+                                </div>
+                              ))}
+                          </div>
+                        )}
+                      </div>
                       {conditions.length > 1 && (
                         <button
                           className="remove-condition-button"
