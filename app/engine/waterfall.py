@@ -18,6 +18,7 @@ from app.models import (
     DimHierarchy,
     FactCalculatedResult,
     FactPnlGold,
+    FactPnlEntries,
     MetadataRule,
     UseCase,
     UseCaseRun,
@@ -118,6 +119,78 @@ def load_facts(session: Session, filters: Optional[Dict] = None) -> pd.DataFrame
     return df
 
 
+def load_facts_from_entries(session: Session, use_case_id: Optional[UUID] = None, filters: Optional[Dict] = None) -> pd.DataFrame:
+    """
+    Load fact data from fact_pnl_entries table (for Project Sterling and similar use cases).
+    
+    Args:
+        session: SQLAlchemy session
+        use_case_id: Optional use case ID to filter by
+        filters: Optional dictionary with filters like {category_code: [...], pnl_date: [...]}
+    
+    Returns:
+        Pandas DataFrame with all fact rows, using Decimal for numeric columns
+        Columns: category_code, daily_amount, wtd_amount, ytd_amount
+    """
+    query = session.query(FactPnlEntries)
+    
+    # Filter by use_case_id if provided
+    if use_case_id:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"load_facts_from_entries: Filtering by use_case_id: {use_case_id}")
+        query = query.filter(FactPnlEntries.use_case_id == use_case_id)
+        # Verify the filter is applied
+        count_before = session.query(FactPnlEntries).count()
+        count_after = query.count()
+        logger.info(f"load_facts_from_entries: Total facts before filter: {count_before}, after filter: {count_after}")
+    
+    # Apply additional filters if provided
+    if filters:
+        if 'category_code' in filters:
+            query = query.filter(FactPnlEntries.category_code.in_(filters['category_code']))
+        if 'pnl_date' in filters:
+            query = query.filter(FactPnlEntries.pnl_date == filters['pnl_date'])
+        if 'scenario' in filters:
+            query = query.filter(FactPnlEntries.scenario == filters['scenario'])
+    
+    # Load into DataFrame
+    facts = query.all()
+    
+    # Convert to DataFrame with correct column mapping
+    data = []
+    for fact in facts:
+        data.append({
+            'fact_id': fact.id,
+            'category_code': fact.category_code,
+            'pnl_date': fact.pnl_date,
+            'use_case_id': fact.use_case_id,
+            'scenario': fact.scenario,
+            # CRITICAL: Map fact_pnl_entries columns to standard names
+            'daily_amount': Decimal(str(fact.daily_amount)),
+            'wtd_amount': Decimal(str(fact.wtd_amount)),
+            'ytd_amount': Decimal(str(fact.ytd_amount)),
+            # Map to daily_pnl, mtd_pnl, ytd_pnl for compatibility with calculate_natural_rollup
+            'daily_pnl': Decimal(str(fact.daily_amount)),  # daily_amount -> daily_pnl
+            'mtd_pnl': Decimal(str(fact.wtd_amount)),      # wtd_amount -> mtd_pnl
+            'ytd_pnl': Decimal(str(fact.ytd_amount)),       # ytd_amount -> ytd_pnl
+            'pytd_pnl': Decimal('0'),  # Not available in fact_pnl_entries
+        })
+    
+    df = pd.DataFrame(data)
+    
+    # Ensure Decimal types are preserved
+    if not df.empty:
+        df['daily_amount'] = df['daily_amount'].apply(lambda x: Decimal(str(x)))
+        df['wtd_amount'] = df['wtd_amount'].apply(lambda x: Decimal(str(x)))
+        df['ytd_amount'] = df['ytd_amount'].apply(lambda x: Decimal(str(x)))
+        df['daily_pnl'] = df['daily_pnl'].apply(lambda x: Decimal(str(x)))
+        df['mtd_pnl'] = df['mtd_pnl'].apply(lambda x: Decimal(str(x)))
+        df['ytd_pnl'] = df['ytd_pnl'].apply(lambda x: Decimal(str(x)))
+    
+    return df
+
+
 def calculate_natural_rollup(hierarchy_dict: Dict, children_dict: Dict, leaf_nodes: List, facts_df: pd.DataFrame) -> Dict[str, Dict[str, Decimal]]:
     """
     Calculate natural rollups using bottom-up aggregation.
@@ -134,16 +207,47 @@ def calculate_natural_rollup(hierarchy_dict: Dict, children_dict: Dict, leaf_nod
     results = {}
     measures = ['daily_pnl', 'mtd_pnl', 'ytd_pnl', 'pytd_pnl']
     
-    # Step 1: Calculate leaf node values (sum fact rows where cc_id = node_id)
+    # Step 1: Calculate leaf node values
+    # CRITICAL: Support both fact_pnl_gold (cc_id) and fact_pnl_entries (category_code)
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    # Debug: Log fact columns and sample values
+    if not facts_df.empty:
+        logger.info(f"calculate_natural_rollup: facts_df has {len(facts_df)} rows")
+        logger.info(f"calculate_natural_rollup: facts_df columns: {list(facts_df.columns)}")
+        if 'category_code' in facts_df.columns:
+            unique_codes = facts_df['category_code'].unique()[:10]
+            logger.info(f"calculate_natural_rollup: Sample category_codes: {list(unique_codes)}")
+        if 'cc_id' in facts_df.columns:
+            unique_cc_ids = facts_df['cc_id'].unique()[:10]
+            logger.info(f"calculate_natural_rollup: Sample cc_ids: {list(unique_cc_ids)}")
+        logger.info(f"calculate_natural_rollup: Leaf nodes count: {len(leaf_nodes)}, Sample: {leaf_nodes[:5]}")
+    
     for leaf_id in leaf_nodes:
-        leaf_facts = facts_df[facts_df['cc_id'] == leaf_id]
+        # Try cc_id first (fact_pnl_gold), then category_code (fact_pnl_entries)
+        if 'cc_id' in facts_df.columns:
+            leaf_facts = facts_df[facts_df['cc_id'] == leaf_id]
+        elif 'category_code' in facts_df.columns:
+            leaf_facts = facts_df[facts_df['category_code'] == leaf_id]
+        else:
+            # Fallback: if neither column exists, skip this leaf
+            leaf_facts = pd.DataFrame()
         
         if len(leaf_facts) > 0:
+            # CRITICAL: Use daily_pnl, mtd_pnl, ytd_pnl columns (already mapped in load_facts_from_entries)
+            daily_sum = leaf_facts['daily_pnl'].sum() if 'daily_pnl' in leaf_facts.columns else Decimal('0')
+            mtd_sum = leaf_facts['mtd_pnl'].sum() if 'mtd_pnl' in leaf_facts.columns else Decimal('0')
+            ytd_sum = leaf_facts['ytd_pnl'].sum() if 'ytd_pnl' in leaf_facts.columns else Decimal('0')
+            pytd_sum = leaf_facts['pytd_pnl'].sum() if 'pytd_pnl' in leaf_facts.columns else Decimal('0')
+            
+            logger.debug(f"calculate_natural_rollup: Leaf {leaf_id} matched {len(leaf_facts)} facts, daily={daily_sum}")
+            
             results[leaf_id] = {
-                'daily': leaf_facts['daily_pnl'].sum(),
-                'mtd': leaf_facts['mtd_pnl'].sum(),
-                'ytd': leaf_facts['ytd_pnl'].sum(),
-                'pytd': leaf_facts['pytd_pnl'].sum(),
+                'daily': daily_sum,
+                'mtd': mtd_sum,
+                'ytd': ytd_sum,
+                'pytd': pytd_sum,
             }
         else:
             # No facts for this leaf - set to zero
@@ -153,6 +257,68 @@ def calculate_natural_rollup(hierarchy_dict: Dict, children_dict: Dict, leaf_nod
                 'ytd': Decimal('0'),
                 'pytd': Decimal('0'),
             }
+    
+    # Debug: Log how many leaf nodes got matched
+    matched_count = sum(1 for leaf_id in leaf_nodes if results.get(leaf_id, {}).get('daily', Decimal('0')) != Decimal('0'))
+    logger.info(f"calculate_natural_rollup: Matched {matched_count}/{len(leaf_nodes)} leaf nodes with non-zero values")
+    
+    # CRITICAL FIX: If no matches found and we have category_code, try aggregating all facts
+    # This handles cases where hierarchy node_ids don't match category_code values
+    if matched_count == 0 and 'category_code' in facts_df.columns and not facts_df.empty:
+        logger.warning(f"calculate_natural_rollup: No leaf nodes matched! Trying aggregate approach...")
+        # Aggregate all facts by category_code
+        if 'daily_pnl' in facts_df.columns:
+            aggregated = facts_df.groupby('category_code').agg({
+                'daily_pnl': 'sum',
+                'mtd_pnl': 'sum',
+                'ytd_pnl': 'sum',
+                'pytd_pnl': 'sum' if 'pytd_pnl' in facts_df.columns else lambda x: Decimal('0')
+            }).to_dict('index')
+            
+            # Try to match aggregated values to leaf nodes
+            for leaf_id in leaf_nodes:
+                # Try exact match first
+                if leaf_id in aggregated:
+                    results[leaf_id] = {
+                        'daily': Decimal(str(aggregated[leaf_id]['daily_pnl'])),
+                        'mtd': Decimal(str(aggregated[leaf_id]['mtd_pnl'])),
+                        'ytd': Decimal(str(aggregated[leaf_id]['ytd_pnl'])),
+                        'pytd': Decimal(str(aggregated[leaf_id].get('pytd_pnl', Decimal('0')))),
+                    }
+                else:
+                    # Try case-insensitive match or partial match
+                    matched = False
+                    for cat_code, values in aggregated.items():
+                        if cat_code.upper() == leaf_id.upper() or leaf_id.upper() in cat_code.upper() or cat_code.upper() in leaf_id.upper():
+                            results[leaf_id] = {
+                                'daily': Decimal(str(values['daily_pnl'])),
+                                'mtd': Decimal(str(values['mtd_pnl'])),
+                                'ytd': Decimal(str(values['ytd_pnl'])),
+                                'pytd': Decimal(str(values.get('pytd_pnl', Decimal('0')))),
+                            }
+                            matched = True
+                            logger.info(f"calculate_natural_rollup: Matched {leaf_id} to {cat_code} via fuzzy matching")
+                            break
+                    
+                    if not matched:
+                        # Still no match - keep zero
+                        logger.debug(f"calculate_natural_rollup: No match found for leaf {leaf_id}")
+            
+            # Recalculate matched count
+            matched_count = sum(1 for leaf_id in leaf_nodes if results.get(leaf_id, {}).get('daily', Decimal('0')) != Decimal('0'))
+            logger.info(f"calculate_natural_rollup: After aggregate approach, matched {matched_count}/{len(leaf_nodes)} leaf nodes")
+        
+        # CRITICAL FIX: If still no matches, DO NOT distribute across leaf nodes
+        # The category_code values (TRADE_001, etc.) don't match hierarchy node_ids (ENTITY_UK_LTD, etc.)
+        # Instead, leave leaf nodes as zero and let the ROOT node be overridden by unified_pnl_service
+        if matched_count == 0 and not facts_df.empty:
+            logger.warning(
+                f"calculate_natural_rollup: No matches found between category_code and node_id. "
+                f"Leaf nodes will remain zero. ROOT node will be set by unified_pnl_service in discovery endpoint."
+            )
+            # Calculate total for logging only (don't distribute)
+            total_daily = facts_df['daily_pnl'].sum() if 'daily_pnl' in facts_df.columns else Decimal('0')
+            logger.info(f"calculate_natural_rollup: Total in facts_df: {total_daily}, but NOT distributing to leaf nodes")
     
     # Step 2: Bottom-up aggregation for parent nodes
     # Process nodes by depth (deepest first)
@@ -186,7 +352,10 @@ def calculate_natural_rollup(hierarchy_dict: Dict, children_dict: Dict, leaf_nod
 
 def load_rules(session: Session, use_case_id: UUID) -> Dict[str, MetadataRule]:
     """
-    Load all rules for a use case.
+    Load all rules for a use case using RAW SQL.
+    
+    RAW SQL RULES LOAD: Loads rules strictly by Use Case ID, ignoring Structure ID.
+    This ensures "orphaned" rules (rules that exist but might be linked to wrong Structure ID) are found.
     
     Args:
         session: SQLAlchemy session
@@ -195,16 +364,66 @@ def load_rules(session: Session, use_case_id: UUID) -> Dict[str, MetadataRule]:
     Returns:
         Dictionary mapping node_id -> rule object
     """
-    rules = session.query(MetadataRule).filter(
-        MetadataRule.use_case_id == use_case_id
-    ).all()
+    import logging
+    logger = logging.getLogger(__name__)
     
-    return {rule.node_id: rule for rule in rules}
+    # RAW SQL RULES LOAD (Ignoring Structure ID to find "Orphaned" Rules)
+    sql_rules = text("""
+        SELECT 
+            rule_id, 
+            node_id, 
+            predicate_json,
+            sql_where, 
+            logic_en,
+            last_modified_by,
+            created_at,
+            last_modified_at
+        FROM metadata_rules
+        WHERE use_case_id = :uc_id
+    """)
+    
+    try:
+        rule_rows = session.execute(sql_rules, {"uc_id": str(use_case_id)}).fetchall()
+        
+        active_rules = {}
+        for r in rule_rows:
+            # Reconstruct MetadataRule object using constructor
+            # Note: rule_id is auto-generated, but we set it from raw SQL for consistency
+            rule = MetadataRule(
+                use_case_id=use_case_id,
+                node_id=r[1],
+                predicate_json=r[2] if r[2] else None,
+                sql_where=r[3] if r[3] else None,
+                logic_en=r[4] if r[4] else None,
+                last_modified_by=r[5] if r[5] else 'system'
+            )
+            # Set rule_id and timestamps from raw SQL (not in constructor)
+            rule.rule_id = r[0]
+            rule.created_at = r[6] if r[6] else None
+            rule.last_modified_at = r[7] if r[7] else None
+            
+            active_rules[rule.node_id] = rule
+        
+        logger.debug(f"Rescued {len(active_rules)} Rules via Raw SQL (Ignoring Structure Link) for use_case_id={use_case_id}")
+        return active_rules
+        
+    except Exception as e:
+        logger.error(f"ERROR in load_rules (Raw SQL): {str(e)}", exc_info=True)
+        # Fallback to ORM if raw SQL fails
+        logger.warning("Falling back to ORM for rule loading")
+        rules = session.query(MetadataRule).filter(
+            MetadataRule.use_case_id == use_case_id
+        ).all()
+        return {rule.node_id: rule for rule in rules}
 
 
 def apply_rule_override(session: Session, facts_df: pd.DataFrame, rule: MetadataRule) -> Dict[str, Decimal]:
     """
     Apply a rule override by executing SQL WHERE clause on facts.
+    
+    Note: For Sterling Python rules, this function may not be called since rules
+    are applied via Python logic. However, for SQL-based rules, we need to handle
+    the fact that sql_where clauses may reference fact_pnl_entries.
     
     Args:
         session: SQLAlchemy session (for executing SQL)
@@ -214,28 +433,64 @@ def apply_rule_override(session: Session, facts_df: pd.DataFrame, rule: Metadata
     Returns:
         Dictionary {daily: Decimal, mtd: Decimal, ytd: Decimal, pytd: Decimal}
     """
-    # Execute SQL WHERE clause on fact table
-    # We'll use SQLAlchemy to execute the query safely
-    sql_query = f"""
-        SELECT 
-            SUM(daily_pnl) as daily_pnl,
-            SUM(mtd_pnl) as mtd_pnl,
-            SUM(ytd_pnl) as ytd_pnl,
-            SUM(pytd_pnl) as pytd_pnl
-        FROM fact_pnl_gold
-        WHERE {rule.sql_where}
-    """
+    if not rule.sql_where:
+        # No SQL WHERE clause - return zeros
+        return {
+            'daily': Decimal('0'),
+            'mtd': Decimal('0'),
+            'ytd': Decimal('0'),
+            'pytd': Decimal('0'),
+        }
     
+    # Try to execute SQL WHERE clause on fact_pnl_entries table
+    # Note: sql_where may reference fact_pnl_entries columns (daily_amount, wtd_amount, ytd_amount)
+    # or fact_pnl_gold columns (daily_pnl, mtd_pnl, ytd_pnl)
+    # We'll try fact_pnl_entries first (for Sterling compatibility)
     try:
+        # Check if sql_where references fact_pnl_entries or fact_pnl_gold
+        sql_where = rule.sql_where.strip()
+        
+        # If sql_where references fact_pnl_entries, use that table
+        if 'fact_pnl_entries' in sql_where or 'fpe' in sql_where:
+            sql_query = f"""
+                SELECT 
+                    COALESCE(SUM(daily_amount), 0) as daily_amount,
+                    COALESCE(SUM(wtd_amount), 0) as wtd_amount,
+                    COALESCE(SUM(ytd_amount), 0) as ytd_amount,
+                    0 as pytd_amount
+                FROM fact_pnl_entries
+                WHERE {sql_where}
+            """
+        else:
+            # Default to fact_pnl_gold for legacy rules
+            sql_query = f"""
+                SELECT 
+                    COALESCE(SUM(daily_pnl), 0) as daily_pnl,
+                    COALESCE(SUM(mtd_pnl), 0) as mtd_pnl,
+                    COALESCE(SUM(ytd_pnl), 0) as ytd_pnl,
+                    COALESCE(SUM(pytd_pnl), 0) as pytd_pnl
+                FROM fact_pnl_gold
+                WHERE {sql_where}
+            """
+        
         result = session.execute(text(sql_query)).fetchone()
         
         if result and result[0] is not None:
-            return {
-                'daily': Decimal(str(result[0] or 0)),
-                'mtd': Decimal(str(result[1] or 0)),
-                'ytd': Decimal(str(result[2] or 0)),
-                'pytd': Decimal(str(result[3] or 0)),
-            }
+            # Map columns based on which table was used
+            if 'fact_pnl_entries' in sql_where or 'fpe' in sql_where:
+                return {
+                    'daily': Decimal(str(result[0] or 0)),
+                    'mtd': Decimal(str(result[1] or 0)),  # wtd_amount maps to mtd
+                    'ytd': Decimal(str(result[2] or 0)),
+                    'pytd': Decimal(str(result[3] or 0)),
+                }
+            else:
+                return {
+                    'daily': Decimal(str(result[0] or 0)),
+                    'mtd': Decimal(str(result[1] or 0)),
+                    'ytd': Decimal(str(result[2] or 0)),
+                    'pytd': Decimal(str(result[3] or 0)),
+                }
         else:
             # No matching rows
             return {
@@ -245,8 +500,21 @@ def apply_rule_override(session: Session, facts_df: pd.DataFrame, rule: Metadata
                 'pytd': Decimal('0'),
             }
     except Exception as e:
-        # If SQL execution fails, return zeros
-        print(f"Warning: Rule execution failed for node {rule.node_id}: {e}")
+        # CRITICAL: Rollback transaction on SQL error to prevent InFailedSqlTransaction
+        try:
+            session.rollback()
+        except Exception as rollback_error:
+            # If rollback fails, log but don't raise (we're already in error handling)
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"apply_rule_override: Failed to rollback after SQL error: {rollback_error}")
+        
+        # If SQL execution fails, return zeros (this is expected for Sterling Python rules)
+        # Only log warning if sql_where exists and looks valid
+        if rule.sql_where and rule.sql_where.strip() and rule.sql_where.strip() != '1=1':
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"apply_rule_override: Rule execution failed for node {rule.node_id}: {e}")
         return {
             'daily': Decimal('0'),
             'mtd': Decimal('0'),

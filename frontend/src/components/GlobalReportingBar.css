@@ -1,0 +1,97 @@
+.global-reporting-bar {
+  background: white;
+  border-bottom: 2px solid #e0e0e0;
+  padding: 1rem 2rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.reporting-bar-left,
+.reporting-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.reporting-control-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.reporting-control-group label {
+  font-weight: 500;
+  color: #2c3e50;
+  white-space: nowrap;
+  font-size: 0.9rem;
+}
+
+.date-input {
+  padding: 0.5rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  min-width: 150px;
+}
+
+.run-select {
+  padding: 0.5rem 1rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  min-width: 250px;
+  background: white;
+}
+
+.run-select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.latest-badge {
+  background: #10b981;
+  color: white;
+  padding: 0.25rem 0.5rem;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  margin-left: 0.5rem;
+}
+
+.toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.comparison-toggle {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+}
+
+.comparison-toggle:checked {
+  accent-color: #3498db;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .global-reporting-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .reporting-bar-left,
+  .reporting-bar-right {
+    width: 100%;
+    justify-content: space-between;
+  }
+}
+

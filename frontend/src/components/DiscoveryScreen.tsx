@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { AgGridReact } from 'ag-grid-react'
 import { ColDef, GridApi, ColumnApi } from 'ag-grid-community'
 import axios from 'axios'
+import { useReportingContext } from '../contexts/ReportingContext'
 import 'ag-grid-community/styles/ag-grid.css'
 import 'ag-grid-community/styles/ag-theme-alpine.css'
 import './DiscoveryScreen.css'
@@ -49,17 +50,26 @@ interface DiscoveryResponse {
   structure_id: string
   hierarchy: HierarchyNode[]
   reconciliation?: ReconciliationData
+  debug_info?: {
+    source_table?: string
+    row_count?: number
+    use_case_id?: string
+    use_case_name?: string
+    [key: string]: any
+  }
 }
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
 const DiscoveryScreen: React.FC = () => {
+  // Use ReportingContext for globalTotal
+  const { setGlobalTotal } = useReportingContext()
+  
   const [structureId, setStructureId] = useState<string>('')
   const [availableStructures, setAvailableStructures] = useState<Structure[]>([])
   const [useCases, setUseCases] = useState<any[]>([])
   const [selectedUseCaseId, setSelectedUseCaseId] = useState<string>('')
   const [selectedUseCase, setSelectedUseCase] = useState<any>(null)
-  const [selectedReport, setSelectedReport] = useState<any>(null) // For scope data only
   const [loading, setLoading] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
   const [rowData, setRowData] = useState<any[]>([])
@@ -173,6 +183,7 @@ const DiscoveryScreen: React.FC = () => {
   }, [])
 
   // Load available structures from API
+  // FIX: Remove structureId from dependencies to prevent infinite loop
   const loadStructures = useCallback(async () => {
     try {
       console.log('Tab 2: Loading structures from:', `${API_BASE_URL}/api/v1/structures`)
@@ -184,12 +195,17 @@ const DiscoveryScreen: React.FC = () => {
       console.log('Tab 2: Found', structures.length, 'structures')
       setAvailableStructures(structures)
       
-      // Auto-select first structure if none selected
-      if (structures.length > 0 && !structureId) {
-        const firstStructure = structures[0]
-        console.log('Tab 2: Auto-selecting first structure:', firstStructure.structure_id)
-        setStructureId(firstStructure.structure_id)
-      } else if (structures.length === 0) {
+      // Auto-select first structure if none selected (use functional update to avoid dependency)
+      setStructureId(prevStructureId => {
+        if (structures.length > 0 && !prevStructureId) {
+          const firstStructure = structures[0]
+          console.log('Tab 2: Auto-selecting first structure:', firstStructure.structure_id)
+          return firstStructure.structure_id
+        }
+        return prevStructureId
+      })
+      
+      if (structures.length === 0) {
         console.warn('Tab 2: No structures found')
         setError('No structures available. Please ensure mock data has been generated.')
       }
@@ -198,74 +214,139 @@ const DiscoveryScreen: React.FC = () => {
       console.error('Tab 2: Error details:', err.response?.data || err.message)
       setError(`Failed to load available structures: ${err.response?.data?.detail || err.message}`)
     }
-  }, [structureId])
+  }, []) // FIX: Empty dependency array - load once on mount
 
-  // Load use cases (unified data source for all tabs)
+  // Load use cases
   const loadUseCases = useCallback(async () => {
     try {
       console.log('Tab 2: Loading use cases from:', `${API_BASE_URL}/api/v1/use-cases`)
-      const response = await axios.get<{ use_cases: any[] }>(
-        `${API_BASE_URL}/api/v1/use-cases`
-      )
-      console.log('Tab 2: Use Cases API response:', response.data)
+      const response = await axios.get(`${API_BASE_URL}/api/v1/use-cases`)
       const useCasesList = response.data.use_cases || []
+      console.log('Tab 2: Use cases API response:', useCasesList)
       console.log('Tab 2: Found', useCasesList.length, 'use cases')
       setUseCases(useCasesList)
-      
-      // Auto-select first use case if available and none selected
-      const savedUseCaseId = localStorage.getItem('finance_insight_selected_use_case_id')
-      if (savedUseCaseId && useCasesList.find((uc: any) => uc.use_case_id === savedUseCaseId)) {
-        setSelectedUseCaseId(savedUseCaseId)
-      } else if (useCasesList.length > 0 && !selectedUseCaseId) {
-        setSelectedUseCaseId(useCasesList[0].use_case_id)
-      }
     } catch (err: any) {
       console.error('Tab 2: Failed to load use cases:', err)
       console.error('Tab 2: Error details:', err.response?.data || err.message)
+      setUseCases([])
       // Don't set error for use cases - it's okay if there are no use cases yet
     }
+  }, [])
+
+  // FIX: Use ref to prevent double-firing in React Strict Mode
+  const initialized = useRef(false)
+  const metadataLoaded = useRef(false)
+
+  // Load metadata (structures and use cases) ONCE on mount
+  useEffect(() => {
+    if (!initialized.current) {
+      initialized.current = true
+      console.log('Tab 2: Component mounted, loading structures and use cases...')
+      loadStructures()
+      loadUseCases()
+      metadataLoaded.current = true
+    }
+  }, []) // FIX: Empty dependency array - run once on mount
+
+  // Listen for use case deletion events to refresh the list
+  // FIX: Use ref to access current state without dependencies
+  const useCasesRef = useRef<any[]>([])
+  useEffect(() => {
+    useCasesRef.current = useCases
+  }, [useCases])
+
+  const selectedUseCaseIdRef = useRef<string>('')
+  useEffect(() => {
+    selectedUseCaseIdRef.current = selectedUseCaseId
   }, [selectedUseCaseId])
 
-  // Load use case details when selected
+  useEffect(() => {
+    const handleUseCaseDeleted = async () => {
+      await loadUseCases()
+      // Clear selection if the deleted use case was selected
+      // Use refs to access current values without dependencies
+      const currentUseCaseId = selectedUseCaseIdRef.current
+      const currentUseCases = useCasesRef.current
+      
+      if (currentUseCaseId) {
+        const stillExists = currentUseCases.find(uc => uc.use_case_id === currentUseCaseId)
+        if (!stillExists) {
+          setSelectedUseCaseId('')
+          setSelectedUseCase(null)
+          setStructureId('')
+        }
+      }
+    }
+
+    window.addEventListener('useCaseDeleted', handleUseCaseDeleted as EventListener)
+    return () => {
+      window.removeEventListener('useCaseDeleted', handleUseCaseDeleted as EventListener)
+    }
+  }, [loadUseCases]) // Only depend on loadUseCases (which has empty deps)
+
+  // Load use case details when selected and auto-populate Atlas Structure
   useEffect(() => {
     if (selectedUseCaseId) {
       const useCase = useCases.find(uc => uc.use_case_id === selectedUseCaseId)
       if (useCase) {
         setSelectedUseCase(useCase)
-        setStructureId(useCase.atlas_structure_id)
-        
-        // Also load ReportRegistration data for scope information (if exists)
-        const loadReportData = async () => {
-          try {
-            const response = await axios.get<any[]>(`${API_BASE_URL}/api/v1/reports`)
-            const report = response.data.find((r: any) => r.report_name === useCase.name)
-            if (report) {
-              setSelectedReport(report)
-            } else {
-              setSelectedReport(null)
-            }
-          } catch (err) {
-            // If reports endpoint fails, continue without scope data
-            setSelectedReport(null)
-          }
+        // Auto-populate Atlas Structure from use case
+        if (useCase.atlas_structure_id) {
+          setStructureId(useCase.atlas_structure_id)
         }
-        loadReportData()
       }
+    } else {
+      setSelectedUseCase(null)
+      setStructureId('')
     }
   }, [selectedUseCaseId, useCases])
 
-  const loadDiscoveryData = useCallback(async () => {
-    if (!structureId) return
+  // FIX: loadDiscoveryData should use current state values, not closure variables
+  // Remove useCallback dependencies to ensure it always uses fresh state
+  const loadDiscoveryData = useCallback(async (useCaseId?: string, structId?: string) => {
+    // Use provided parameters or fall back to current state
+    const currentUseCaseId = useCaseId || selectedUseCaseId
+    const currentStructureId = structId || structureId
+    
+    // CRITICAL: Guard to prevent loading without use_case_id
+    if (!currentUseCaseId) {
+      console.warn('Tab 2: Cannot load discovery data - no use_case_id selected')
+      return
+    }
+    
+    if (!currentStructureId) {
+      console.warn('Tab 2: Cannot load discovery data - no structure_id')
+      return
+    }
 
     setLoading(true)
     setError(null)
     
+    // OPTIONAL: Clear grid immediately to show user something is happening
+    setRowData([])
+    
     try {
-      console.log(`Tab 2: Loading discovery data for structure: ${structureId}`)
+      console.log(`Tab 2: Fetching Tab 2 for Use Case: ${currentUseCaseId}, structure: ${currentStructureId}`)
+      // CACHE BUSTING: Append timestamp to force fresh request and prevent "Ghost Data"
+      const timestamp = Date.now()
+      const params: any = { 
+        structure_id: currentStructureId,
+        use_case_id: currentUseCaseId,  // MANDATORY: Always pass use_case_id
+        t: timestamp  // Cache busting parameter
+      }
       const response = await axios.get<DiscoveryResponse>(
         `${API_BASE_URL}/api/v1/discovery`,
-        { params: { structure_id: structureId } }
+        { params }
       )
+      
+      // CRITICAL: Log RAW API response to verify backend is sending correct data
+      console.log("RAW API RESPONSE:", JSON.stringify(response.data, null, 2))
+      
+      // Log debug_info from backend
+      if (response.data?.debug_info) {
+        console.log('Tab 2: Backend debug_info:', response.data.debug_info)
+        console.log(`Tab 2: Source Table: ${response.data.debug_info.source_table}, Row Count: ${response.data.debug_info.row_count}, Use Case ID: ${response.data.debug_info.use_case_id}`)
+      }
       
       // Debug: Log full API response
       console.log('Tab 2: Full API Response:', response.data)
@@ -382,23 +463,27 @@ const DiscoveryScreen: React.FC = () => {
     } finally {
       setLoading(false)
     }
-  }, [structureId, flattenHierarchy, gridApi])
+  }, [selectedUseCaseId, structureId, flattenHierarchy, gridApi]) // FIX: Include selectedUseCaseId in dependencies
 
-  useEffect(() => {
-    console.log('Tab 2: Component mounted, loading structures and reports...')
-    loadStructures()
-    loadUseCases()
-  }, [loadStructures, loadUseCases])
+  // REMOVED: Duplicate initialization useEffect - now handled by the ref-based useEffect above
 
+  // SEPARATION OF CONCERNS: Data Load (Run on Use Case Change)
+  // This hook specifically watches selectedUseCaseId and triggers data refresh
   useEffect(() => {
-    console.log('Tab 2: useEffect [structureId] triggered, structureId:', structureId)
-    if (structureId) {
-      console.log('Tab 2: Calling loadDiscoveryData for structureId:', structureId)
-      loadDiscoveryData()
+    console.log('Tab 2: useEffect [selectedUseCaseId] triggered, selectedUseCaseId:', selectedUseCaseId)
+    if (selectedUseCaseId && structureId) {
+      console.log('Tab 2: Use case changed, refreshing data for:', selectedUseCaseId)
+      // Clear grid immediately to show user something is happening
+      setRowData([])
+      // Load fresh data with current use case ID (pass parameters to use fresh values)
+      loadDiscoveryData(selectedUseCaseId, structureId)
     } else {
-      console.warn('Tab 2: useEffect: structureId is empty, not loading discovery data')
+      console.warn('Tab 2: useEffect: selectedUseCaseId or structureId is empty, not loading discovery data')
     }
-  }, [structureId, loadDiscoveryData])
+  }, [selectedUseCaseId, structureId, loadDiscoveryData]) // CRITICAL: Include all dependencies
+
+  // Note: We don't need a separate structureId useEffect because the above hook already watches both
+  // This prevents duplicate calls when both values change
 
   // Financial formatter: Red negatives with parentheses
   const financialFormatter = (params: any) => {
@@ -533,7 +618,7 @@ const DiscoveryScreen: React.FC = () => {
     return checkAncestors(data)
   }, [expandedNodes, rowData])
 
-  // Filter columns based on selected report's scopes (only show 'input' scoped columns)
+  // Generate columns based on selected use case (show all columns when use case is selected)
   const columnDefs: ColDef[] = useMemo(() => {
     const cols: ColDef[] = []
 
@@ -553,90 +638,12 @@ const DiscoveryScreen: React.FC = () => {
       },
     })
 
-    // Add dimension columns if they have 'input' scope (removed redundant Group/Product/Desk columns)
-    // Load scope data from ReportRegistration (if available)
-    if (selectedReport?.dimension_scopes) {
-      const dimScopes = selectedReport.dimension_scopes
-      if (dimScopes.region?.includes('input')) {
-        cols.push({
-          field: 'region',
-          headerName: 'Region',
-          width: 120,
-          valueGetter: (params) => params.data?.region || '',
-        })
-      }
-      if (dimScopes.strategy?.includes('input')) {
-        cols.push({
-          field: 'strategy',
-          headerName: 'Strategy',
-          width: 200,
-          valueGetter: (params) => params.data?.strategy || '',
-        })
-      }
-    }
-
-    // Add Official GL Baseline
-    cols.push({
-      field: 'official_gl_baseline',
-      headerName: 'Official GL Baseline',
-      width: 180,
-      valueFormatter: financialFormatter,
-      cellClass: 'monospace-number',
-      cellClassRules: cellClassRules,
-    })
-
-    // Add measure columns if they have 'input' scope
-    // Legacy scope support
-    if (selectedReport?.measure_scopes) {
-      const measureScopes = selectedReport.measure_scopes
-      if (measureScopes.daily?.includes('input')) {
-        cols.push({
-          field: 'daily_pnl',
-          headerName: 'Daily P&L',
-          width: 150,
-          valueFormatter: financialFormatter,
-          cellClass: 'monospace-number',
-          cellClassRules: cellClassRules,
-        })
-      }
-      if (measureScopes.wtd?.includes('input')) {
-        cols.push({
-          field: 'wtd_pnl',
-          headerName: 'WTD P&L',
-          width: 150,
-          valueFormatter: financialFormatter,
-          cellClass: 'monospace-number',
-          cellClassRules: cellClassRules,
-        })
-      }
-      if (measureScopes.mtd?.includes('input')) {
-        cols.push({
-          field: 'mtd_pnl',
-          headerName: 'MTD P&L',
-          width: 150,
-          valueFormatter: financialFormatter,
-          cellClass: 'monospace-number',
-          cellClassRules: cellClassRules,
-        })
-      }
-      if (measureScopes.ytd?.includes('input')) {
-        cols.push({
-          field: 'ytd_pnl',
-          headerName: 'YTD P&L',
-          width: 150,
-          valueFormatter: financialFormatter,
-          cellClass: 'monospace-number',
-          cellClassRules: cellClassRules,
-        })
-      }
-    } else {
-      // Default: show all measures if no report selected
-      cols.push(
-        { field: 'daily_pnl', headerName: 'Daily P&L', width: 150, valueFormatter: financialFormatter, cellClass: 'monospace-number', cellClassRules: cellClassRules },
-        { field: 'mtd_pnl', headerName: 'MTD P&L', width: 150, valueFormatter: financialFormatter, cellClass: 'monospace-number', cellClassRules: cellClassRules },
-        { field: 'ytd_pnl', headerName: 'YTD P&L', width: 150, valueFormatter: financialFormatter, cellClass: 'monospace-number', cellClassRules: cellClassRules }
-      )
-    }
+    // Add measure columns (always show Daily, MTD, YTD P&L)
+    cols.push(
+      { field: 'daily_pnl', headerName: 'Daily P&L', width: 150, valueFormatter: financialFormatter, cellClass: 'monospace-number', cellClassRules: cellClassRules },
+      { field: 'mtd_pnl', headerName: 'MTD P&L', width: 150, valueFormatter: financialFormatter, cellClass: 'monospace-number', cellClassRules: cellClassRules },
+      { field: 'ytd_pnl', headerName: 'YTD P&L', width: 150, valueFormatter: financialFormatter, cellClass: 'monospace-number', cellClassRules: cellClassRules }
+    )
 
     return cols
   }, [selectedUseCase, financialFormatter, cellClassRules, nodeNameCellRenderer])
@@ -776,14 +783,7 @@ const DiscoveryScreen: React.FC = () => {
           <select
             id="use-case-select"
             value={selectedUseCaseId}
-            onChange={(e) => {
-              setSelectedUseCaseId(e.target.value)
-              // Auto-set structure from selected use case
-              const selectedUseCase = useCases.find(uc => uc.use_case_id === e.target.value)
-              if (selectedUseCase && selectedUseCase.atlas_structure_id) {
-                setStructureId(selectedUseCase.atlas_structure_id)
-              }
-            }}
+            onChange={(e) => setSelectedUseCaseId(e.target.value)}
             disabled={loading || useCases.length === 0}
             className="use-case-select"
           >
@@ -794,28 +794,29 @@ const DiscoveryScreen: React.FC = () => {
               </option>
             ))}
           </select>
-          <label htmlFor="structure-display">Atlas Structure:</label>
-          <div 
-            id="structure-display"
-            className="structure-display" 
-            style={{ 
-              padding: '0.5rem 1rem', 
-              background: '#f3f4f6', 
-              border: '1px solid #d1d5db', 
-              borderRadius: '4px',
-              color: '#374151',
-              fontSize: '0.875rem',
-              fontWeight: '500',
-              display: 'inline-block',
-              minWidth: '200px'
+          <label htmlFor="structure-select">Atlas Structure:</label>
+          <select
+            id="structure-select"
+            value={structureId}
+            onChange={(e) => setStructureId(e.target.value)}
+            disabled={loading || availableStructures.length === 0 || !!selectedUseCaseId}
+            className="structure-select"
+            style={{
+              backgroundColor: selectedUseCaseId ? '#f3f4f6' : 'white',
+              cursor: selectedUseCaseId ? 'not-allowed' : 'pointer'
             }}
+            title={selectedUseCaseId ? 'Atlas Structure is set by the selected Use Case and cannot be changed here' : 'Select an Atlas Structure'}
           >
-            {structureId ? (
-              `Structure: ${availableStructures.find(s => s.structure_id === structureId)?.name || structureId}`
+            {availableStructures.length === 0 ? (
+              <option value="">Loading structures...</option>
             ) : (
-              'Select a Use Case to view Structure'
+              availableStructures.map((struct) => (
+                <option key={struct.structure_id} value={struct.structure_id}>
+                  {struct.name} ({struct.node_count} nodes)
+                </option>
+              ))
             )}
-          </div>
+          </select>
           <button 
             onClick={loadDiscoveryData} 
             disabled={loading || !structureId}
@@ -991,4 +992,5 @@ const DiscoveryScreen: React.FC = () => {
   )
 }
 
-export default DiscoveryScreen
+// Optimize tab switching: Use React.memo to prevent unnecessary re-renders
+export default React.memo(DiscoveryScreen)

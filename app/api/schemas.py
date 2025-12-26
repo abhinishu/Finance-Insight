@@ -62,6 +62,7 @@ class DiscoveryResponse(BaseModel):
     structure_id: str
     hierarchy: List[HierarchyNode]
     reconciliation: Optional[ReconciliationData] = None
+    debug_info: Optional[Dict[str, Any]] = None  # Debug information: source_table, row_count, use_case_id
 
     class Config:
         json_schema_extra = {
@@ -471,6 +472,7 @@ class ResultsResponse(BaseModel):
     version_tag: str = Field(..., description="Version tag for this run")
     run_timestamp: str = Field(..., description="When the calculation was run")
     hierarchy: List[ResultsNode] = Field(..., description="Hierarchy tree with calculation results")
+    is_outdated: Optional[bool] = Field(default=False, description="Whether the calculation is outdated (rules modified after calculation)")
     
     class Config:
         json_schema_extra = {
