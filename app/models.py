@@ -245,7 +245,6 @@ class ReportRegistration(Base):
         return f"<ReportRegistration(id={self.report_id}, name='{self.report_name}')>"
 
 
-<<<<<<< HEAD
 class DimDictionary(Base):
     """
     Dictionary dimension - portable metadata for categories like BOOK, STRATEGY, PRODUCT_TYPE, etc.
