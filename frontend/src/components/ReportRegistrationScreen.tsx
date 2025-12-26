@@ -8,68 +8,43 @@ interface Structure {
   node_count: number
 }
 
-interface ReportRegistration {
-  report_id: string
-  report_name: string
-  atlas_structure_id: string
-  selected_measures: string[]
-  selected_dimensions: string[] | null
-  measure_scopes?: { [key: string]: string[] }
-  dimension_scopes?: { [key: string]: string[] }
-  owner_id: string
-  created_at: string
-  updated_at: string
-  status?: string
-}
-
-type Scope = 'input' | 'rule' | 'output'
+// Removed unused interfaces - ReportRegistration and Scope no longer needed
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
 const ReportRegistrationScreen: React.FC = () => {
   const [viewMode, setViewMode] = useState<'list' | 'form'>('list')
-  const [editingReportId, setEditingReportId] = useState<string | null>(null)
+  const [editingUseCaseId, setEditingUseCaseId] = useState<string | null>(null)
   
-  const [reportName, setReportName] = useState<string>('')
+  const [useCaseName, setUseCaseName] = useState<string>('')
+  const [useCaseDescription, setUseCaseDescription] = useState<string>('')
   const [selectedStructure, setSelectedStructure] = useState<string>('')
   const [availableStructures, setAvailableStructures] = useState<Structure[]>([])
-  const [selectedMeasures, setSelectedMeasures] = useState<string[]>(['daily', 'mtd', 'ytd'])
-  const [selectedDimensions, setSelectedDimensions] = useState<string[]>(['region', 'product', 'desk', 'strategy'])
-  
-  // Scoping: measure_scopes and dimension_scopes (scope matrix)
-  const [measureScopes, setMeasureScopes] = useState<{ [key: string]: string[] }>({})
-  const [dimensionScopes, setDimensionScopes] = useState<{ [key: string]: string[] }>({})
   
   const [loading, setLoading] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
-  const [registeredReports, setRegisteredReports] = useState<ReportRegistration[]>([])
   const [showConfirmation, setShowConfirmation] = useState<boolean>(false)
   const [confirmationData, setConfirmationData] = useState<any>(null)
+  
+  // Step 4.3: Admin - Use Case Management
+  const [useCases, setUseCases] = useState<any[]>([])
+  const [useCaseToDelete, setUseCaseToDelete] = useState<any>(null)
+  const [showDeleteConfirmation, setShowDeleteConfirmation] = useState<boolean>(false)
+  const [deleteSummary, setDeleteSummary] = useState<any>(null)
+  const [showDeleteToast, setShowDeleteToast] = useState<boolean>(false)
+  
+  // Step 4.4: Metadata export state
+  const [exportingMetadata, setExportingMetadata] = useState<boolean>(false)
+  const [exportSuccess, setExportSuccess] = useState<string | null>(null)
 
-  // Available measures
-  const availableMeasures = [
-    { id: 'daily', label: 'Daily P&L' },
-    { id: 'wtd', label: 'WTD (Week-to-Date)' },
-    { id: 'mtd', label: 'MTD (Month-to-Date)' },
-    { id: 'ytd', label: 'YTD (Year-to-Date)' }
-  ]
+  // Removed measures, dimensions, and scopes - not needed for use case creation
 
-  // Available dimensions
-  const availableDimensions = [
-    { id: 'region', label: 'Region' },
-    { id: 'product', label: 'Product' },
-    { id: 'desk', label: 'Desk' },
-    { id: 'strategy', label: 'Strategy' }
-  ]
-
-  // Available scopes
-  const availableScopes: { id: Scope; label: string; tab: string }[] = [
-    { id: 'input', label: 'Input', tab: 'Tab 2' },
-    { id: 'rule', label: 'Business Rules', tab: 'Tab 3' },
-    { id: 'output', label: 'Output', tab: 'Tab 4' }
-  ]
-
+  // Step 4.3: Load use cases on mount
+  useEffect(() => {
+    loadUseCases()
+  }, [])
+  
   // Load available structures
   useEffect(() => {
     const loadStructures = async () => {
@@ -98,121 +73,121 @@ const ReportRegistrationScreen: React.FC = () => {
     loadStructures()
   }, [])
 
-  // Load registered reports
-  const loadReports = async () => {
+  // Step 4.3: Load use cases for admin deletion
+  const loadUseCases = async () => {
     try {
-      console.log('Tab 1: Loading reports from:', `${API_BASE_URL}/api/v1/reports`)
-      const response = await axios.get<ReportRegistration[]>(
-        `${API_BASE_URL}/api/v1/reports`
-      )
-      console.log('Tab 1: Reports API response:', response.data)
-      const reports = response.data || []
-      console.log('Tab 1: Found', reports.length, 'reports')
-      setRegisteredReports(reports)
+      const response = await axios.get(`${API_BASE_URL}/api/v1/use-cases`)
+      const useCasesList = response.data.use_cases || []
+      // Filter out any use cases that might have been deleted (defensive check)
+      setUseCases(useCasesList)
+      console.log('TAB 1: Loaded', useCasesList.length, 'use cases')
     } catch (err: any) {
-      console.error('Tab 1: Failed to load reports:', err)
-      console.error('Tab 1: Error details:', err.response?.data || err.message)
-      // Don't set error for reports - it's okay if there are no reports yet
+      console.error('Failed to load use cases:', err)
+      setUseCases([]) // Clear on error
+      // Non-fatal error - continue without use cases
     }
   }
-
-  useEffect(() => {
-    loadReports()
-  }, [])
-
-  // Initialize default scopes when measures/dimensions change
-  useEffect(() => {
-    const newMeasureScopes: { [key: string]: string[] } = {}
-    selectedMeasures.forEach(measure => {
-      if (!measureScopes[measure]) {
-        newMeasureScopes[measure] = ['input', 'rule', 'output'] // Default: all scopes
-      } else {
-        newMeasureScopes[measure] = measureScopes[measure]
-      }
-    })
-    setMeasureScopes(newMeasureScopes)
-  }, [selectedMeasures])
-
-  useEffect(() => {
-    const newDimensionScopes: { [key: string]: string[] } = {}
-    selectedDimensions.forEach(dimension => {
-      if (!dimensionScopes[dimension]) {
-        newDimensionScopes[dimension] = ['input', 'rule', 'output'] // Default: all scopes
-      } else {
-        newDimensionScopes[dimension] = dimensionScopes[dimension]
-      }
-    })
-    setDimensionScopes(newDimensionScopes)
-  }, [selectedDimensions])
-
-  const handleMeasureToggle = (measureId: string) => {
-    setSelectedMeasures(prev =>
-      prev.includes(measureId)
-        ? prev.filter(m => m !== measureId)
-        : [...prev, measureId]
-    )
-  }
-
-  const handleDimensionToggle = (dimensionId: string) => {
-    setSelectedDimensions(prev =>
-      prev.includes(dimensionId)
-        ? prev.filter(d => d !== dimensionId)
-        : [...prev, dimensionId]
-    )
-  }
-
-  // Scope matrix toggle - grid selection
-  const handleScopeToggle = (type: 'measure' | 'dimension', itemId: string, scope: Scope) => {
-    if (type === 'measure') {
-      setMeasureScopes(prev => {
-        const current = prev[itemId] || []
-        const updated = current.includes(scope)
-          ? current.filter(s => s !== scope)
-          : [...current, scope]
-        return { ...prev, [itemId]: updated }
-      })
-    } else {
-      setDimensionScopes(prev => {
-        const current = prev[itemId] || []
-        const updated = current.includes(scope)
-          ? current.filter(s => s !== scope)
-          : [...current, scope]
-        return { ...prev, [itemId]: updated }
-      })
+  
+  // Step 4.4: Export metadata
+  const handleExportMetadata = async () => {
+    setExportingMetadata(true)
+    setExportSuccess(null)
+    setError(null)
+    
+    try {
+      const response = await axios.post(`${API_BASE_URL}/api/v1/admin/export-metadata`)
+      const result = response.data
+      
+      setExportSuccess(
+        `Metadata exported successfully! ${result.total_entries} entries exported to ${result.export_path}`
+      )
+      
+      // Auto-hide success message after 5 seconds
+      setTimeout(() => {
+        setExportSuccess(null)
+      }, 5000)
+    } catch (err: any) {
+      console.error('Failed to export metadata:', err)
+      setError(err.response?.data?.detail || 'Failed to export metadata')
+    } finally {
+      setExportingMetadata(false)
     }
   }
+  
+  // Step 4.3: Show delete confirmation modal
+  const handleDeleteClick = (useCase: any) => {
+    setUseCaseToDelete(useCase)
+    setShowDeleteConfirmation(true)
+  }
+
+  // Step 4.4: Delete use case with summary (enhanced to show modal instead of toast)
+  const handleConfirmDeleteUseCase = async () => {
+    if (!useCaseToDelete) {
+      return
+    }
+    
+    setLoading(true)
+    setError(null)
+    setShowDeleteConfirmation(false)
+    
+    try {
+      const response = await axios.delete(`${API_BASE_URL}/api/v1/admin/use-case/${useCaseToDelete.use_case_id}`)
+      const summary = response.data
+      
+      // Step 4.4: Show summary in prominent modal instead of toast
+      setDeleteSummary(summary)
+      setShowDeleteToast(true) // Reusing this state name but it's now a modal
+      
+      // Clear selection first
+      const deletedId = useCaseToDelete.use_case_id
+      setUseCaseToDelete(null)
+      
+      // Refresh use cases list immediately
+      await loadUseCases()
+      
+      // Trigger a custom event to notify other tabs to refresh
+      window.dispatchEvent(new CustomEvent('useCaseDeleted', { 
+        detail: { useCaseId: deletedId } 
+      }))
+      
+    } catch (err: any) {
+      console.error('Failed to delete use case:', err)
+      setError(err.response?.data?.detail || 'Failed to delete use case.')
+    } finally {
+      setLoading(false)
+    }
+  }
+  
+  // No longer need to load reports - only use cases
+
+  // Removed scope-related functions - no longer needed for use cases
 
   const handleCreateNew = () => {
     setViewMode('form')
-    setEditingReportId(null)
-    setReportName('')
-    setSelectedMeasures(['daily', 'mtd', 'ytd'])
-    setSelectedDimensions(['region', 'product', 'desk', 'strategy'])
-    setMeasureScopes({})
-    setDimensionScopes({})
+    setEditingUseCaseId(null)
+    setUseCaseName('')
+    setUseCaseDescription('')
+    setSelectedStructure('')
     setError(null)
     setSuccess(null)
   }
 
-  const handleEdit = async (reportId: string) => {
+  const handleEdit = async (useCaseId: string) => {
     try {
-      const response = await axios.get<ReportRegistration>(
-        `${API_BASE_URL}/api/v1/reports/${reportId}`
+      const response = await axios.get(
+        `${API_BASE_URL}/api/v1/use-cases/${useCaseId}`
       )
-      const report = response.data
+      const useCase = response.data
       
-      setEditingReportId(reportId)
-      setReportName(report.report_name)
-      setSelectedStructure(report.atlas_structure_id)
-      setSelectedMeasures(report.selected_measures)
-      setSelectedDimensions(report.selected_dimensions || [])
-      setMeasureScopes(report.measure_scopes || {})
-      setDimensionScopes(report.dimension_scopes || {})
+      setEditingUseCaseId(useCaseId)
+      setUseCaseName(useCase.name)
+      setUseCaseDescription(useCase.description || '')
+      setSelectedStructure(useCase.atlas_structure_id)
       setViewMode('form')
       setError(null)
       setSuccess(null)
     } catch (err: any) {
-      setError('Failed to load report for editing')
+      setError('Failed to load use case for editing')
       console.error(err)
     }
   }
@@ -220,15 +195,11 @@ const ReportRegistrationScreen: React.FC = () => {
   const handleSaveClick = () => {
     // Prepare confirmation data
     const structureName = availableStructures.find(s => s.structure_id === selectedStructure)?.name || selectedStructure
-    const measureCount = selectedMeasures.length
-    const dimensionCount = selectedDimensions.length
     
     setConfirmationData({
-      reportName,
+      useCaseName,
       structureName,
-      measureCount,
-      dimensionCount,
-      isEdit: !!editingReportId
+      isEdit: !!editingUseCaseId
     })
     setShowConfirmation(true)
   }
@@ -236,18 +207,13 @@ const ReportRegistrationScreen: React.FC = () => {
   const handleConfirmSave = async () => {
     setShowConfirmation(false)
     
-    if (!reportName.trim()) {
-      setError('Please enter a report name')
+    if (!useCaseName.trim()) {
+      setError('Please enter a use case name')
       return
     }
 
-    if (!selectedStructure) {
+    if (!editingUseCaseId && !selectedStructure) {
       setError('Please select an Atlas structure')
-      return
-    }
-
-    if (selectedMeasures.length === 0) {
-      setError('Please select at least one measure')
       return
     }
 
@@ -256,44 +222,54 @@ const ReportRegistrationScreen: React.FC = () => {
     setSuccess(null)
 
     try {
-      const payload = {
-        report_name: reportName,
-        atlas_structure_id: selectedStructure,
-        selected_measures: selectedMeasures,
-        selected_dimensions: selectedDimensions.length > 0 ? selectedDimensions : null,
-        measure_scopes: measureScopes,
-        dimension_scopes: dimensionScopes,
-        owner_id: 'current_user'
-      }
-
-      if (editingReportId) {
-        // Update existing report
-        await axios.put<ReportRegistration>(
-          `${API_BASE_URL}/api/v1/reports/${editingReportId}`,
-          payload
+      if (editingUseCaseId) {
+        // Step 4.4: Update existing use case - only name and description allowed
+        const params = new URLSearchParams()
+        params.append('name', useCaseName)
+        if (useCaseDescription !== undefined) {
+          params.append('description', useCaseDescription || '')
+        }
+        
+        await axios.put(
+          `${API_BASE_URL}/api/v1/use-cases/${editingUseCaseId}?${params.toString()}`
         )
-        setSuccess(`Report "${reportName}" updated successfully!`)
+        setSuccess(`Use case "${useCaseName}" updated successfully!`)
+        
+        // Trigger event to notify other tabs
+        window.dispatchEvent(new CustomEvent('useCaseUpdated', { 
+          detail: { useCaseId: editingUseCaseId } 
+        }))
       } else {
-        // Create new report
-        await axios.post<ReportRegistration>(
-          `${API_BASE_URL}/api/v1/reports`,
-          payload
+        // Create new use case - use query parameters as per API
+        const params = new URLSearchParams()
+        params.append('name', useCaseName)
+        if (useCaseDescription) {
+          params.append('description', useCaseDescription)
+        }
+        params.append('atlas_structure_id', selectedStructure)
+        params.append('owner_id', 'current_user')
+        
+        await axios.post(
+          `${API_BASE_URL}/api/v1/use-cases?${params.toString()}`
         )
-        setSuccess(`Report "${reportName}" registered successfully!`)
+        setSuccess(`Use case "${useCaseName}" created successfully!`)
+        
+        // Trigger event to notify other tabs
+        window.dispatchEvent(new CustomEvent('useCaseCreated', {}))
       }
 
       // Reset form
       handleCreateNew()
       
-      // Reload reports list
-      await loadReports()
+      // Reload use cases list
+      await loadUseCases()
       
       // Switch back to list view after a delay
       setTimeout(() => {
         setViewMode('list')
       }, 1500)
     } catch (err: any) {
-      const errorMsg = err.response?.data?.detail || err.message || 'Failed to save report'
+      const errorMsg = err.response?.data?.detail || err.message || 'Failed to save use case'
       setError(errorMsg)
       console.error('Save error:', err)
     } finally {
@@ -301,70 +277,293 @@ const ReportRegistrationScreen: React.FC = () => {
     }
   }
 
-  const getStructureName = (structureId: string) => {
-    return availableStructures.find(s => s.structure_id === structureId)?.name || structureId
-  }
-
   return (
     <div className="report-registration-screen">
       {viewMode === 'list' ? (
         <div className="report-library-container">
           <div className="library-header">
-            <h2>Report Library</h2>
+            <h2>Use Cases</h2>
             <button onClick={handleCreateNew} className="create-new-button">
-              + Create New Report
+              + Create Use Case
             </button>
           </div>
 
-          {registeredReports.length === 0 ? (
-            <div className="empty-state">
-              <p>No reports registered yet</p>
-              <button onClick={handleCreateNew} className="create-first-button">
-                Create Your First Report
-              </button>
-            </div>
-          ) : (
-            <div className="reports-table-container">
-              <table className="reports-table">
-                <thead>
-                  <tr>
-                    <th>Report Name</th>
-                    <th>Structure</th>
-                    <th>Created Date</th>
-                    <th>Status</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {registeredReports.map((report) => (
-                    <tr key={report.report_id}>
-                      <td>{report.report_name}</td>
-                      <td>{getStructureName(report.atlas_structure_id)}</td>
-                      <td>{new Date(report.created_at).toLocaleDateString()}</td>
-                      <td>
-                        <span className="status-badge">{report.status || 'ACTIVE'}</span>
-                      </td>
-                      <td>
-                        <button
-                          onClick={() => handleEdit(report.report_id)}
-                          className="edit-button"
-                        >
-                          Edit
-                        </button>
-                      </td>
+          {/* Use Cases Section */}
+          <div style={{ marginBottom: '2rem' }}>
+            <h3 style={{ marginBottom: '1rem', color: '#1f2937' }}>Use Cases</h3>
+            {useCases.length === 0 ? (
+              <div className="empty-state" style={{ padding: '2rem', textAlign: 'center', background: '#f9fafb', borderRadius: '8px' }}>
+                <p>No use cases found</p>
+              </div>
+            ) : (
+              <div className="reports-table-container">
+                <table className="reports-table">
+                  <thead>
+                    <tr>
+                      <th>Use Case Name</th>
+                      <th>Description</th>
+                      <th>Status</th>
+                      <th>Created Date</th>
+                      <th>Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {useCases.map((useCase) => (
+                      <tr key={useCase.use_case_id}>
+                        <td>{useCase.name}</td>
+                        <td>{useCase.description || '-'}</td>
+                        <td>
+                          <span className="status-badge">{useCase.status || 'ACTIVE'}</span>
+                        </td>
+                        <td>{useCase.created_at ? new Date(useCase.created_at).toLocaleDateString() : '-'}</td>
+                        <td>
+                          <div style={{ display: 'flex', gap: '0.5rem' }}>
+                            <button
+                              onClick={() => handleEdit(useCase.use_case_id)}
+                              className="edit-button"
+                              style={{ padding: '0.25rem 0.75rem', fontSize: '0.875rem' }}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => {
+                                // Toggle active status
+                                setError('Active toggle functionality coming soon')
+                              }}
+                              className="edit-button"
+                              style={{ padding: '0.25rem 0.75rem', fontSize: '0.875rem' }}
+                            >
+                              {useCase.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}
+                            </button>
+                            <button
+                              onClick={() => handleDeleteClick(useCase)}
+                              className="danger-button"
+                              style={{ 
+                                padding: '0.25rem 0.75rem', 
+                                fontSize: '0.875rem',
+                                background: '#ef4444',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '4px',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Step 4.4: Admin - Metadata Management */}
+          <div style={{ 
+            marginTop: '3rem', 
+            padding: '1.5rem', 
+            background: '#f9fafb', 
+            borderRadius: '8px',
+            border: '1px solid #e5e7eb'
+          }}>
+            <h3 style={{ marginBottom: '1rem', color: '#1f2937' }}>Admin: Metadata Management</h3>
+            <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
+              <button
+                onClick={handleExportMetadata}
+                disabled={exportingMetadata}
+                style={{
+                  padding: '0.75rem 1.5rem',
+                  background: exportingMetadata ? '#9ca3af' : '#3b82f6',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '6px',
+                  fontSize: '0.875rem',
+                  fontWeight: '600',
+                  cursor: exportingMetadata ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem'
+                }}
+              >
+                {exportingMetadata ? (
+                  <>
+                    <span>⏳</span> Exporting...
+                  </>
+                ) : (
+                  <>
+                    <span>📥</span> Export Metadata
+                  </>
+                )}
+              </button>
+              {exportSuccess && (
+                <div style={{ 
+                  padding: '0.5rem 1rem', 
+                  background: '#d1fae5', 
+                  border: '1px solid #10b981',
+                  borderRadius: '4px',
+                  color: '#065f46',
+                  fontSize: '0.875rem'
+                }}>
+                  ✓ {exportSuccess}
+                </div>
+              )}
+            </div>
+            <p style={{ 
+              marginTop: '0.75rem', 
+              fontSize: '0.8125rem', 
+              color: '#6b7280',
+              fontStyle: 'italic'
+            }}>
+              Exports dictionary definitions to <code>/metadata/backups/</code> for environment synchronization.
+            </p>
+          </div>
+
+          {/* Step 4.4: Deletion Summary Modal (Prominent Alert) */}
+          {showDeleteToast && deleteSummary && (
+            <div 
+              className="modal-overlay" 
+              onClick={() => {
+                setShowDeleteToast(false)
+                setDeleteSummary(null)
+              }}
+              style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: 'rgba(0, 0, 0, 0.5)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 2000
+              }}
+            >
+              <div 
+                className="modal-content" 
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  background: 'white',
+                  borderRadius: '8px',
+                  padding: '2rem',
+                  maxWidth: '600px',
+                  width: '90%',
+                  boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+                  border: '2px solid #dc2626'
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
+                  <h2 style={{ color: '#dc2626', margin: 0, fontSize: '1.5rem' }}>
+                    ⚠️ Deletion Summary
+                  </h2>
+                  <button
+                    onClick={() => {
+                      setShowDeleteToast(false)
+                      setDeleteSummary(null)
+                    }}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      fontSize: '1.5rem',
+                      cursor: 'pointer',
+                      color: '#6b7280',
+                      padding: '0',
+                      lineHeight: '1'
+                    }}
+                  >
+                    ×
+                  </button>
+                </div>
+                
+                <div style={{ 
+                  background: '#fef2f2', 
+                  border: '1px solid #fecaca', 
+                  borderRadius: '6px', 
+                  padding: '1.5rem',
+                  marginBottom: '1.5rem'
+                }}>
+                  <p style={{ marginBottom: '1rem', fontSize: '1.1rem', fontWeight: '600', color: '#991b1b' }}>
+                    Use case <strong>{deleteSummary.deleted_use_case}</strong> has been permanently deleted.
+                  </p>
+                  
+                  <div style={{ 
+                    display: 'grid', 
+                    gridTemplateColumns: '1fr 1fr', 
+                    gap: '1rem',
+                    marginTop: '1rem'
+                  }}>
+                    <div style={{ padding: '0.75rem', background: 'white', borderRadius: '4px', border: '1px solid #fecaca' }}>
+                      <div style={{ fontSize: '0.875rem', color: '#6b7280', marginBottom: '0.25rem' }}>Rules Purged</div>
+                      <div style={{ fontSize: '1.5rem', fontWeight: '700', color: '#dc2626' }}>
+                        {deleteSummary.rules_purged || 0}
+                      </div>
+                    </div>
+                    <div style={{ padding: '0.75rem', background: 'white', borderRadius: '4px', border: '1px solid #fecaca' }}>
+                      <div style={{ fontSize: '0.875rem', color: '#6b7280', marginBottom: '0.25rem' }}>Legacy Runs Purged</div>
+                      <div style={{ fontSize: '1.5rem', fontWeight: '700', color: '#dc2626' }}>
+                        {deleteSummary.legacy_runs_purged || 0}
+                      </div>
+                    </div>
+                    <div style={{ padding: '0.75rem', background: 'white', borderRadius: '4px', border: '1px solid #fecaca' }}>
+                      <div style={{ fontSize: '0.875rem', color: '#6b7280', marginBottom: '0.25rem' }}>Calculation Runs Purged</div>
+                      <div style={{ fontSize: '1.5rem', fontWeight: '700', color: '#dc2626' }}>
+                        {deleteSummary.calculation_runs_purged || 0}
+                      </div>
+                    </div>
+                    <div style={{ padding: '0.75rem', background: 'white', borderRadius: '4px', border: '1px solid #fecaca' }}>
+                      <div style={{ fontSize: '0.875rem', color: '#6b7280', marginBottom: '0.25rem' }}>Facts Purged</div>
+                      <div style={{ fontSize: '1.5rem', fontWeight: '700', color: '#dc2626' }}>
+                        {deleteSummary.facts_purged || 0}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div style={{ 
+                    marginTop: '1.5rem', 
+                    padding: '1rem', 
+                    background: '#dc2626', 
+                    borderRadius: '4px',
+                    textAlign: 'center'
+                  }}>
+                    <div style={{ fontSize: '0.875rem', color: 'white', marginBottom: '0.25rem' }}>Total Items Deleted</div>
+                    <div style={{ fontSize: '2rem', fontWeight: '700', color: 'white' }}>
+                      {deleteSummary.total_items_deleted || 0}
+                    </div>
+                  </div>
+                </div>
+                
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <button
+                    onClick={() => {
+                      setShowDeleteToast(false)
+                      setDeleteSummary(null)
+                    }}
+                    style={{
+                      padding: '0.75rem 1.5rem',
+                      background: '#dc2626',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '6px',
+                      fontSize: '1rem',
+                      fontWeight: '600',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Acknowledge
+                  </button>
+                </div>
+              </div>
             </div>
           )}
         </div>
       ) : (
         <div className="registration-container">
           <div className="form-header">
-            <h2>{editingReportId ? 'Edit Report' : 'Report Registration'}</h2>
+            <h2>{editingUseCaseId ? 'Edit Use Case' : 'Create Use Case'}</h2>
             <button onClick={() => setViewMode('list')} className="back-button">
-              ← Back to Library
+              ← Back to Use Cases
             </button>
           </div>
 
@@ -382,25 +581,54 @@ const ReportRegistrationScreen: React.FC = () => {
 
           <div className="form-section">
             <div className="form-group">
-              <label htmlFor="report-name">Report Name *</label>
+              <label htmlFor="use-case-name">Use Case Name *</label>
               <input
-                id="report-name"
+                id="use-case-name"
                 type="text"
-                value={reportName}
-                onChange={(e) => setReportName(e.target.value)}
+                value={useCaseName}
+                onChange={(e) => setUseCaseName(e.target.value)}
                 placeholder="e.g., Americas Trading P&L"
                 className="form-input"
               />
             </div>
 
             <div className="form-group">
-              <label htmlFor="structure-select">Atlas Structure *</label>
+              <label htmlFor="use-case-description">Description (Optional)</label>
+              <textarea
+                id="use-case-description"
+                value={useCaseDescription}
+                onChange={(e) => setUseCaseDescription(e.target.value)}
+                placeholder="Enter a description for this use case..."
+                className="form-input"
+                rows={3}
+              />
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="structure-select">
+                Atlas Structure *
+                {editingUseCaseId && (
+                  <span style={{ 
+                    marginLeft: '0.5rem', 
+                    fontSize: '0.75rem', 
+                    color: '#6b7280',
+                    fontStyle: 'italic'
+                  }}>
+                    (Cannot be changed after creation)
+                  </span>
+                )}
+              </label>
               <select
                 id="structure-select"
                 value={selectedStructure}
                 onChange={(e) => setSelectedStructure(e.target.value)}
                 className="form-select"
-                disabled={loading || availableStructures.length === 0}
+                disabled={loading || availableStructures.length === 0 || !!editingUseCaseId}
+                style={editingUseCaseId ? { 
+                  backgroundColor: '#f3f4f6', 
+                  cursor: 'not-allowed',
+                  color: '#6b7280'
+                } : {}}
               >
                 {availableStructures.length === 0 ? (
                   <option value="">Loading structures...</option>
@@ -414,105 +642,65 @@ const ReportRegistrationScreen: React.FC = () => {
               </select>
             </div>
 
-            {/* Scope Matrix for Measures */}
-            <div className="form-group">
-              <label>Measures *</label>
-              <div className="scope-matrix-container">
-                <table className="scope-matrix">
-                  <thead>
-                    <tr>
-                      <th>Measure</th>
-                      {availableScopes.map((scope) => (
-                        <th key={scope.id} title={scope.tab}>
-                          {scope.label}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {availableMeasures.map((measure) => (
-                      <tr key={measure.id}>
-                        <td>
-                          <label className="matrix-checkbox-label">
-                            <input
-                              type="checkbox"
-                              checked={selectedMeasures.includes(measure.id)}
-                              onChange={() => handleMeasureToggle(measure.id)}
-                            />
-                            <span>{measure.label}</span>
-                          </label>
-                        </td>
-                        {availableScopes.map((scope) => (
-                          <td key={scope.id}>
-                            <input
-                              type="checkbox"
-                              checked={selectedMeasures.includes(measure.id) && (measureScopes[measure.id] || []).includes(scope.id)}
-                              onChange={() => handleScopeToggle('measure', measure.id, scope.id)}
-                              disabled={!selectedMeasures.includes(measure.id)}
-                              className="scope-checkbox"
-                            />
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Scope Matrix for Dimensions */}
-            <div className="form-group">
-              <label>Dimensions (Optional)</label>
-              <div className="scope-matrix-container">
-                <table className="scope-matrix">
-                  <thead>
-                    <tr>
-                      <th>Dimension</th>
-                      {availableScopes.map((scope) => (
-                        <th key={scope.id} title={scope.tab}>
-                          {scope.label}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {availableDimensions.map((dimension) => (
-                      <tr key={dimension.id}>
-                        <td>
-                          <label className="matrix-checkbox-label">
-                            <input
-                              type="checkbox"
-                              checked={selectedDimensions.includes(dimension.id)}
-                              onChange={() => handleDimensionToggle(dimension.id)}
-                            />
-                            <span>{dimension.label}</span>
-                          </label>
-                        </td>
-                        {availableScopes.map((scope) => (
-                          <td key={scope.id}>
-                            <input
-                              type="checkbox"
-                              checked={selectedDimensions.includes(dimension.id) && (dimensionScopes[dimension.id] || []).includes(scope.id)}
-                              onChange={() => handleScopeToggle('dimension', dimension.id, scope.id)}
-                              disabled={!selectedDimensions.includes(dimension.id)}
-                              className="scope-checkbox"
-                            />
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
             <button
               onClick={handleSaveClick}
-              disabled={loading || !reportName.trim() || !selectedStructure}
+              disabled={loading || !useCaseName.trim() || !selectedStructure}
               className="save-button"
             >
-              {loading ? 'Saving...' : editingReportId ? 'Update Report' : 'Save Report'}
+              {loading ? 'Saving...' : editingUseCaseId ? 'Update Use Case' : 'Create Use Case'}
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirmation && useCaseToDelete && (
+        <div className="modal-overlay" onClick={() => setShowDeleteConfirmation(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ color: '#dc2626', marginBottom: '1rem' }}>Confirm Deletion</h3>
+            <div className="confirmation-summary">
+              <p style={{ marginBottom: '1rem' }}>
+                Are you sure you want to delete the use case <strong>{useCaseToDelete.name}</strong>?
+              </p>
+              <p style={{ marginBottom: '1rem', color: '#dc2626', fontWeight: '600' }}>
+                This action cannot be undone and will permanently delete:
+              </p>
+              <ul style={{ marginLeft: '1.5rem', marginBottom: '1rem', color: '#6b7280' }}>
+                <li>All associated business rules</li>
+                <li>All calculation runs</li>
+                <li>All P&L fact entries</li>
+                <li>All related data</li>
+              </ul>
+              <p className="confirmation-question" style={{ marginTop: '1rem' }}>Do you want to proceed?</p>
+            </div>
+            <div className="modal-actions">
+              <button 
+                onClick={() => {
+                  setShowDeleteConfirmation(false)
+                  setUseCaseToDelete(null)
+                }} 
+                className="cancel-button"
+                disabled={loading}
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={handleConfirmDeleteUseCase} 
+                className="danger-button"
+                disabled={loading}
+                style={{
+                  background: '#dc2626',
+                  color: 'white',
+                  border: 'none',
+                  padding: '0.5rem 1.5rem',
+                  borderRadius: '4px',
+                  cursor: loading ? 'not-allowed' : 'pointer',
+                  opacity: loading ? 0.6 : 1
+                }}
+              >
+                {loading ? 'Deleting...' : 'Delete Use Case'}
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -523,10 +711,10 @@ const ReportRegistrationScreen: React.FC = () => {
             <h3>Confirm {confirmationData.isEdit ? 'Update' : 'Registration'}</h3>
             <div className="confirmation-summary">
               <p>
-                Registering <strong>{confirmationData.reportName}</strong> with <strong>{confirmationData.measureCount}</strong> Measure(s) and <strong>{confirmationData.dimensionCount}</strong> Dimension(s).
+                {confirmationData.isEdit ? 'Updating' : 'Creating'} use case <strong>{confirmationData.useCaseName}</strong>.
               </p>
               <p>
-                Using the <strong>{confirmationData.structureName}</strong> hierarchy.
+                Using the <strong>{confirmationData.structureName}</strong> Atlas Structure.
               </p>
               <p className="confirmation-question">Continue?</p>
             </div>
@@ -535,7 +723,7 @@ const ReportRegistrationScreen: React.FC = () => {
                 Cancel
               </button>
               <button onClick={handleConfirmSave} className="confirm-button">
-                {confirmationData.isEdit ? 'Update' : 'Continue'}
+                {confirmationData.isEdit ? 'Update' : 'Create'}
               </button>
             </div>
           </div>

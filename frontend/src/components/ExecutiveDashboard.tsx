@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { AgGridReact } from 'ag-grid-react'
-import { ColDef, GridApi, ColumnApi } from 'ag-grid-community'
+import { ColDef, GridApi, ColumnApi, ICellRendererParams } from 'ag-grid-community'
 import axios from 'axios'
+import { useReportingContext } from '../contexts/ReportingContext'
 import 'ag-grid-community/styles/ag-grid.css'
 import 'ag-grid-community/styles/ag-theme-alpine.css'
 import './ExecutiveDashboard.css'
@@ -35,9 +36,16 @@ interface ResultsNode {
 }
 
 interface UseCaseRun {
-  run_id: string
-  version_tag: string
-  run_timestamp: string
+  id?: string  // Step 4.2: New calculation_runs format
+  run_id?: string  // Legacy use_case_runs format
+  pnl_date?: string  // Step 4.2: Date anchor
+  run_name?: string  // Step 4.2: New format
+  version_tag?: string  // Legacy format
+  executed_at?: string  // Step 4.2: New format
+  run_timestamp?: string  // Legacy format
+  status?: string
+  triggered_by?: string
+  duration_ms?: number
 }
 
 interface ResultsResponse {
@@ -48,15 +56,49 @@ interface ResultsResponse {
   hierarchy: ResultsNode[]
 }
 
+// Custom Cell Renderer Component for Business Rule
+const BusinessRuleCellRenderer: React.FC<ICellRendererParams> = (params) => {
+  if (!params.data?.rule?.logic_en) {
+    return <span style={{ color: '#999' }}>—</span>
+  }
+  
+  const logicText = params.data.rule.logic_en || 'Business Rule Applied'
+  const displayText = logicText.length > 60 ? logicText.substring(0, 57) + '...' : logicText
+  
+  return (
+    <span 
+      className="rule-badge" 
+      title={logicText}
+      style={{ cursor: 'help' }}
+    >
+      {displayText}
+    </span>
+  )
+}
+
 const ExecutiveDashboard: React.FC = () => {
+  // Step 4.3: Use ReportingContext for global state
+  const {
+    selectedUseCaseId: contextUseCaseId,
+    setSelectedUseCaseId: setContextUseCaseId,
+    selectedRunId: contextRunId,
+    isComparisonMode,
+    baselineRunId,
+    targetRunId,
+  } = useReportingContext()
+  
   // Use Case Management
   const [useCases, setUseCases] = useState<UseCase[]>([])
-  const [selectedUseCaseId, setSelectedUseCaseId] = useState<string>('')
+  const [selectedUseCaseId, setSelectedUseCaseId] = useState<string>(contextUseCaseId || '')
   const [selectedUseCase, setSelectedUseCase] = useState<UseCase | null>(null)
 
-  // Run Management
+  // Run Management (kept for backward compatibility, but will sync with context)
   const [runs, setRuns] = useState<UseCaseRun[]>([])
   const [selectedRunId, setSelectedRunId] = useState<string>('')
+  
+  // Comparison Data
+  const [baselineData, setBaselineData] = useState<any[]>([])
+  const [targetData, setTargetData] = useState<any[]>([])
 
   // Data
   const [rowData, setRowData] = useState<any[]>([])
@@ -85,6 +127,29 @@ const ExecutiveDashboard: React.FC = () => {
     loadUseCases()
   }, [])
 
+  // Listen for use case deletion events to refresh the list
+  useEffect(() => {
+    const handleUseCaseDeleted = async (event: any) => {
+      const deletedUseCaseId = event.detail?.useCaseId
+      const currentSelectedId = selectedUseCaseId
+      
+      // Reload use cases
+      await loadUseCases()
+      
+      // Clear selection if the deleted use case was the one selected
+      if (currentSelectedId === deletedUseCaseId) {
+        setSelectedUseCaseId('')
+        setSelectedUseCase(null)
+        setRowData([])
+      }
+    }
+
+    window.addEventListener('useCaseDeleted', handleUseCaseDeleted as EventListener)
+    return () => {
+      window.removeEventListener('useCaseDeleted', handleUseCaseDeleted as EventListener)
+    }
+  }, [selectedUseCaseId])
+
   // Load runs when use case changes
   useEffect(() => {
     if (selectedUseCaseId) {
@@ -93,12 +158,43 @@ const ExecutiveDashboard: React.FC = () => {
     }
   }, [selectedUseCaseId])
 
-  // Load results when run is selected
+  // Sync local use case with context
   useEffect(() => {
-    if (selectedUseCaseId && selectedRunId) {
-      loadResults(selectedUseCaseId, selectedRunId)
+    if (contextUseCaseId && contextUseCaseId !== selectedUseCaseId) {
+      setSelectedUseCaseId(contextUseCaseId)
     }
-  }, [selectedUseCaseId, selectedRunId])
+  }, [contextUseCaseId])
+  
+  // Update context when local use case changes
+  useEffect(() => {
+    if (selectedUseCaseId && selectedUseCaseId !== contextUseCaseId) {
+      setContextUseCaseId(selectedUseCaseId)
+    }
+  }, [selectedUseCaseId])
+  
+  // Load results when run is selected (standard mode)
+  useEffect(() => {
+    if (selectedUseCaseId && !isComparisonMode) {
+      // Use contextRunId if available, otherwise try selectedRunId, otherwise load most recent
+      const runIdToUse = contextRunId || selectedRunId || undefined
+      // Wrap in try/catch to prevent component crash
+      try {
+        loadResults(selectedUseCaseId, runIdToUse)
+      } catch (err: any) {
+        console.error('TAB 4: Error in useEffect loadResults:', err)
+        setError('Dashboard data unavailable for this Use Case.')
+        setRowData([])
+        setLoading(false)
+      }
+    }
+  }, [selectedUseCaseId, contextRunId, selectedRunId, isComparisonMode])
+  
+  // Load comparison data when both runs are selected
+  useEffect(() => {
+    if (selectedUseCaseId && isComparisonMode && baselineRunId && targetRunId) {
+      loadComparisonResults(selectedUseCaseId, baselineRunId, targetRunId)
+    }
+  }, [selectedUseCaseId, isComparisonMode, baselineRunId, targetRunId])
 
   const loadUseCases = async () => {
     try {
@@ -118,13 +214,37 @@ const ExecutiveDashboard: React.FC = () => {
 
   const loadRuns = async (useCaseId: string) => {
     try {
-      // Get use case details to find runs
-      const response = await axios.get(`${API_BASE_URL}/api/v1/use-cases/${useCaseId}`)
-      // Note: We'll need to add a runs endpoint or get runs from results
-      // For now, we'll load the most recent run when loading results
-      setRuns([])
+      // Use the new Step 4.2 runs API endpoint
+      const response = await axios.get(`${API_BASE_URL}/api/v1/runs?use_case_id=${useCaseId}`)
+      const runsList = response.data.runs || []
+      setRuns(runsList)
+      
+      // Auto-select the most recent run if available and no run is currently selected
+      if (runsList.length > 0 && !selectedRunId && !contextRunId) {
+        const firstRunId = runsList[0].id || runsList[0].run_id
+        setSelectedRunId(firstRunId)
+        // Trigger loadResults with the selected run
+        setTimeout(() => loadResults(useCaseId, firstRunId), 100)
+      } else if (runsList.length === 0) {
+        // No runs found - still try to load results (will get most recent or natural values)
+        console.log('No runs found, loading results without run_id to get natural values')
+        setTimeout(() => loadResults(useCaseId), 100)
+      }
     } catch (err: any) {
       console.error('Failed to load runs:', err)
+      // Fallback: try to load legacy runs from use_case_runs
+      try {
+        const useCaseResponse = await axios.get(`${API_BASE_URL}/api/v1/use-cases/${useCaseId}`)
+        // If no runs found, still try to load results
+        setRuns([])
+        console.log('No runs found (fallback), loading results without run_id')
+        setTimeout(() => loadResults(useCaseId), 100)
+      } catch (fallbackErr: any) {
+        console.error('Failed to load use case:', fallbackErr)
+        setRuns([])
+        // Still try to load results even if runs fail
+        setTimeout(() => loadResults(useCaseId), 100)
+      }
     }
   }
 
@@ -137,7 +257,14 @@ const ExecutiveDashboard: React.FC = () => {
         ? `${API_BASE_URL}/api/v1/use-cases/${useCaseId}/results?run_id=${runId}`
         : `${API_BASE_URL}/api/v1/use-cases/${useCaseId}/results`
       
+      console.log('TAB 4: Loading results from:', url)
       const response = await axios.get<ResultsResponse>(url)
+      console.log('TAB 4: Results API response:', {
+        hasHierarchy: !!response.data.hierarchy,
+        hierarchyLength: response.data.hierarchy?.length || 0,
+        runId: response.data.run_id,
+        versionTag: response.data.version_tag
+      })
       
       // Store last calculated timestamp
       if (response.data.run_timestamp) {
@@ -146,7 +273,9 @@ const ExecutiveDashboard: React.FC = () => {
       
       const hierarchy = response.data.hierarchy || []
       if (hierarchy.length === 0) {
-        setError('No results found. Please run a calculation first.')
+        // Graceful fallback: Don't crash, just show gentle warning
+        console.warn('TAB 4: No hierarchy returned from results API. This might indicate an issue with the use case or structure.')
+        setError('Dashboard data unavailable for this Use Case.')
         setRowData([])
         setLoading(false)
         return
@@ -154,22 +283,116 @@ const ExecutiveDashboard: React.FC = () => {
 
       // Flatten hierarchy for AG-Grid
       const flatData = flattenHierarchy(hierarchy)
+      console.log('TAB 4: Flattened data:', {
+        totalRows: flatData.length,
+        sampleRow: flatData[0] || null
+      })
       setRowData(flatData)
       
       // Check if calculation is outdated (compare with rules last modified)
       await checkCalculationFreshness(useCaseId)
     } catch (err: any) {
-      console.error('Failed to load results:', err)
-      setError(err.response?.data?.detail || 'Failed to load results.')
+      // Robust error handling: Do NOT crash the component
+      console.error('TAB 4: Failed to load results:', err)
+      console.error('TAB 4: Error details:', {
+        message: err.message,
+        response: err.response?.data,
+        status: err.response?.status
+      })
+      
+      // Graceful fallback: Set empty state and show gentle warning
+      setError('Dashboard data unavailable for this Use Case.')
+      setRowData([])
+    } finally {
+      setLoading(false)
+    }
+  }
+  
+  // Step 4.3: Load comparison results for baseline and target runs
+  const loadComparisonResults = async (useCaseId: string, baselineRunId: string, targetRunId: string) => {
+    setLoading(true)
+    setError(null)
+    
+    try {
+      // Load both runs in parallel
+      const [baselineResponse, targetResponse] = await Promise.all([
+        axios.get<ResultsResponse>(`${API_BASE_URL}/api/v1/use-cases/${useCaseId}/results?run_id=${baselineRunId}`),
+        axios.get<ResultsResponse>(`${API_BASE_URL}/api/v1/use-cases/${useCaseId}/results?run_id=${targetRunId}`)
+      ])
+      
+      const baselineHierarchy = baselineResponse.data.hierarchy || []
+      const targetHierarchy = targetResponse.data.hierarchy || []
+      
+      if (baselineHierarchy.length === 0 || targetHierarchy.length === 0) {
+        setError('One or both runs have no results.')
+        setRowData([])
+        setLoading(false)
+        return
+      }
+      
+      // Flatten and merge with variance calculation
+      const baselineFlat = flattenHierarchy(baselineHierarchy)
+      const targetFlat = flattenHierarchy(targetHierarchy)
+      
+      // Create a map for quick lookup
+      const targetMap = new Map(targetFlat.map(item => [item.node_id, item]))
+      
+      // Merge data with variance
+      const mergedData = baselineFlat.map(baselineItem => {
+        const targetItem = targetMap.get(baselineItem.node_id)
+        if (!targetItem) {
+          return {
+            ...baselineItem,
+            target_adjusted_value: { daily: '0', mtd: '0', ytd: '0' },
+            variance: { daily: '0', mtd: '0', ytd: '0' }
+          }
+        }
+        
+        // Calculate variance: Target - Baseline
+        const variance = {
+          daily: (parseFloat(targetItem.adjusted_value?.daily || '0') - parseFloat(baselineItem.adjusted_value?.daily || '0')).toString(),
+          mtd: (parseFloat(targetItem.adjusted_value?.mtd || '0') - parseFloat(baselineItem.adjusted_value?.mtd || '0')).toString(),
+          ytd: (parseFloat(targetItem.adjusted_value?.ytd || '0') - parseFloat(baselineItem.adjusted_value?.ytd || '0')).toString(),
+        }
+        
+        return {
+          ...baselineItem,
+          target_adjusted_value: targetItem.adjusted_value,
+          variance,
+        }
+      })
+      
+      setBaselineData(baselineFlat)
+      setTargetData(targetFlat)
+      setRowData(mergedData)
+      
+    } catch (err: any) {
+      console.error('Failed to load comparison results:', err)
+      setError(err.response?.data?.detail || 'Failed to load comparison results.')
     } finally {
       setLoading(false)
     }
   }
 
-  // Check if calculation is outdated
+  // Check if calculation is outdated - Use backend's is_outdated flag instead of client-side comparison
   const checkCalculationFreshness = async (useCaseId: string) => {
     try {
-      // Get latest rule modification time
+      // Get results from backend which includes is_outdated flag (with grace period)
+      const response = await axios.get(
+        `${API_BASE_URL}/api/v1/use-cases/${useCaseId}/results`
+      )
+      
+      // Use backend's is_outdated flag (computed with 2-second grace period)
+      if (response.data?.is_outdated !== undefined) {
+        setIsCalculationOutdated(response.data.is_outdated)
+      }
+      
+      // Also update lastCalculated timestamp if available
+      if (response.data?.run_timestamp) {
+        setLastCalculated(response.data.run_timestamp)
+      }
+      
+      // Get latest rule modification time for display purposes
       const rulesResponse = await axios.get(
         `${API_BASE_URL}/api/v1/use-cases/${useCaseId}/rules`
       )
@@ -184,13 +407,6 @@ const ExecutiveDashboard: React.FC = () => {
         
         if (latestRule && latestRule.last_modified_at) {
           setRulesLastModified(latestRule.last_modified_at)
-          
-          // Compare with last calculated time
-          if (lastCalculated && new Date(latestRule.last_modified_at) > new Date(lastCalculated)) {
-            setIsCalculationOutdated(true)
-          } else {
-            setIsCalculationOutdated(false)
-          }
         }
       }
     } catch (err: any) {
@@ -220,8 +436,6 @@ const ExecutiveDashboard: React.FC = () => {
       const row = {
         ...node,
         path,
-        // AG-Grid tree data
-        group: !node.is_leaf,
         // Helper for conditional formatting
         hasPlug,
       }
@@ -235,16 +449,93 @@ const ExecutiveDashboard: React.FC = () => {
     return result
   }
 
-  // AG-Grid Column Definitions (dynamic based on view mode)
+  // AG-Grid Column Definitions (dynamic based on view mode and comparison mode)
   const getColumnDefs = (): ColDef[] => {
-    const baseColumns: ColDef[] = [
-      {
-        field: 'node_name',
-        headerName: 'Dimension Node',
-        flex: 2,
-        cellRenderer: 'agGroupCellRenderer',
-      },
-    ]
+    // Note: node_name column is handled by autoGroupColumnDef for tree data
+    const baseColumns: ColDef[] = []
+
+    // Step 4.3: Comparison Mode Columns
+    if (isComparisonMode) {
+      return [
+        ...baseColumns,
+        {
+          field: 'baseline_adjusted_value',
+          headerName: 'Baseline P&L',
+          flex: 1.2,
+          valueGetter: (params) => parseFloat(params.data?.adjusted_value?.daily || 0),
+          valueFormatter: (params) => {
+            if (!params.value && params.value !== 0) return ''
+            const value = typeof params.value === 'number' ? params.value : parseFloat(params.value)
+            if (isNaN(value)) return ''
+            
+            const isNegative = value < 0
+            const absValue = Math.abs(value)
+            const formatted = new Intl.NumberFormat('en-US', {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            }).format(absValue)
+            
+            return isNegative ? `(${formatted})` : formatted
+          },
+          cellStyle: { textAlign: 'right' },
+        },
+        {
+          field: 'target_adjusted_value',
+          headerName: 'Target P&L',
+          flex: 1.2,
+          valueGetter: (params) => parseFloat(params.data?.target_adjusted_value?.daily || 0),
+          valueFormatter: (params) => {
+            if (!params.value && params.value !== 0) return ''
+            const value = typeof params.value === 'number' ? params.value : parseFloat(params.value)
+            if (isNaN(value)) return ''
+            
+            const isNegative = value < 0
+            const absValue = Math.abs(value)
+            const formatted = new Intl.NumberFormat('en-US', {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            }).format(absValue)
+            
+            return isNegative ? `(${formatted})` : formatted
+          },
+          cellStyle: { textAlign: 'right' },
+        },
+        {
+          field: 'variance',
+          headerName: 'Variance (Target - Baseline)',
+          headerTooltip: 'Green = Positive movement (Revenue up/Expense down), Red = Negative movement',
+          flex: 1.2,
+          valueGetter: (params) => parseFloat(params.data?.variance?.daily || 0),
+          valueFormatter: (params) => {
+            if (!params.value && params.value !== 0) return ''
+            const value = typeof params.value === 'number' ? params.value : parseFloat(params.value)
+            if (isNaN(value)) return ''
+            
+            const isNegative = value < 0
+            const absValue = Math.abs(value)
+            const formatted = new Intl.NumberFormat('en-US', {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            }).format(absValue)
+            
+            return isNegative ? `(${formatted})` : formatted
+          },
+          cellStyle: (params) => {
+            const value = parseFloat(params.data?.variance?.daily || 0)
+            const baseStyle: any = { textAlign: 'right', fontWeight: '600' }
+            // Green for positive (revenue up/expense down), Red for negative
+            if (value > 0.01) {
+              baseStyle.color = '#10b981' // Green
+            } else if (value < -0.01) {
+              baseStyle.color = '#ef4444' // Red
+            } else {
+              baseStyle.color = '#6b7280' // Gray for zero
+            }
+            return baseStyle
+          },
+        },
+      ]
+    }
 
     if (viewMode === 'standard') {
       // Standard: Show Natural, Adjusted, Plug
@@ -252,12 +543,23 @@ const ExecutiveDashboard: React.FC = () => {
         ...baseColumns,
         {
           field: 'natural_value',
-          headerName: 'Natural GL',
+          headerName: 'Original Daily P&L',
+          headerTooltip: 'Original P&L from source data (before business rules are applied)',
           flex: 1.2,
           valueGetter: (params) => parseFloat(params.data?.natural_value?.daily || 0),
           valueFormatter: (params) => {
-            if (!params.value) return '$0.00'
-            return `$${params.value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+            if (!params.value && params.value !== 0) return ''
+            const value = typeof params.value === 'number' ? params.value : parseFloat(params.value)
+            if (isNaN(value)) return ''
+            
+            const isNegative = value < 0
+            const absValue = Math.abs(value)
+            const formatted = new Intl.NumberFormat('en-US', {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            }).format(absValue)
+            
+            return isNegative ? `(${formatted})` : formatted
           },
           cellStyle: { textAlign: 'right', cursor: 'pointer' },
           onCellClicked: (params) => {
@@ -268,12 +570,23 @@ const ExecutiveDashboard: React.FC = () => {
         },
         {
           field: 'adjusted_value',
-          headerName: 'Adjusted P&L',
+          headerName: 'Adjusted Daily P&L',
+          headerTooltip: 'P&L after business rules are applied',
           flex: 1.2,
           valueGetter: (params) => parseFloat(params.data?.adjusted_value?.daily || 0),
           valueFormatter: (params) => {
-            if (!params.value) return '$0.00'
-            return `$${params.value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+            if (!params.value && params.value !== 0) return ''
+            const value = typeof params.value === 'number' ? params.value : parseFloat(params.value)
+            if (isNaN(value)) return ''
+            
+            const isNegative = value < 0
+            const absValue = Math.abs(value)
+            const formatted = new Intl.NumberFormat('en-US', {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            }).format(absValue)
+            
+            return isNegative ? `(${formatted})` : formatted
           },
           cellStyle: { textAlign: 'right', cursor: 'pointer' },
           onCellClicked: (params) => {
@@ -285,14 +598,22 @@ const ExecutiveDashboard: React.FC = () => {
         {
           field: 'plug',
           headerName: 'Reconciliation Plug',
-          headerTooltip: 'Plug = Natural GL - Adjusted P&L (Golden Equation: Natural = Adjusted + Plug)',
+          headerTooltip: 'Plug = Original Daily P&L - Adjusted Daily P&L (Golden Equation: Original = Adjusted + Plug)',
           flex: 1.2,
           valueGetter: (params) => parseFloat(params.data?.plug?.daily || 0),
           valueFormatter: (params) => {
-            if (!params.value) return '$0.00'
-            const value = params.value
-            const formatted = `$${Math.abs(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-            return value < 0 ? `(${formatted})` : formatted
+            if (!params.value && params.value !== 0) return ''
+            const value = typeof params.value === 'number' ? params.value : parseFloat(params.value)
+            if (isNaN(value)) return ''
+            
+            const isNegative = value < 0
+            const absValue = Math.abs(value)
+            const formatted = new Intl.NumberFormat('en-US', {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            }).format(absValue)
+            
+            return isNegative ? `(${formatted})` : formatted
           },
           cellStyle: (params) => {
             const value = parseFloat(params.data?.plug?.daily || 0)
@@ -314,15 +635,11 @@ const ExecutiveDashboard: React.FC = () => {
         },
         {
           field: 'rule',
-          headerName: 'Rule Reference',
-          flex: 1,
-          cellRenderer: (params: any) => {
-            if (!params.data?.rule?.logic_en) {
-              return '<span style="color: #999;">—</span>'
-            }
-            return `<span class="rule-badge">Rule #${params.data.rule.rule_id || 'N/A'}</span>`
-          },
-          cellStyle: { textAlign: 'center' },
+          headerName: 'Business Rule',
+          headerTooltip: 'Business rule applied to this node',
+          flex: 1.5,
+          cellRenderer: BusinessRuleCellRenderer,
+          cellStyle: { textAlign: 'left', paddingLeft: '8px' },
         },
       ]
     } else if (viewMode === 'delta') {
@@ -335,10 +652,18 @@ const ExecutiveDashboard: React.FC = () => {
           flex: 1.5,
           valueGetter: (params) => parseFloat(params.data?.plug?.daily || 0),
           valueFormatter: (params) => {
-            if (!params.value) return '$0.00'
-            const value = params.value
-            const formatted = `$${Math.abs(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-            return value < 0 ? `(${formatted})` : formatted
+            if (!params.value && params.value !== 0) return ''
+            const value = typeof params.value === 'number' ? params.value : parseFloat(params.value)
+            if (isNaN(value)) return ''
+            
+            const isNegative = value < 0
+            const absValue = Math.abs(value)
+            const formatted = new Intl.NumberFormat('en-US', {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            }).format(absValue)
+            
+            return isNegative ? `(${formatted})` : formatted
           },
           cellStyle: (params) => {
             const value = parseFloat(params.data?.plug?.daily || 0)
@@ -387,24 +712,46 @@ const ExecutiveDashboard: React.FC = () => {
         ...baseColumns,
         {
           field: 'natural_value',
-          headerName: 'Natural GL',
+          headerName: 'Original Daily P&L',
+          headerTooltip: 'Original P&L from source data (before business rules are applied)',
           flex: 1.2,
           valueGetter: (params) => parseFloat(params.data?.natural_value?.daily || 0),
           valueFormatter: (params) => {
-            if (!params.value) return '$0.00'
-            return `$${params.value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+            if (!params.value && params.value !== 0) return ''
+            const value = typeof params.value === 'number' ? params.value : parseFloat(params.value)
+            if (isNaN(value)) return ''
+            
+            const isNegative = value < 0
+            const absValue = Math.abs(value)
+            const formatted = new Intl.NumberFormat('en-US', {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            }).format(absValue)
+            
+            return isNegative ? `(${formatted})` : formatted
           },
           cellStyle: { textAlign: 'right', cursor: 'pointer' },
           onCellClicked: (params) => loadCalculationTrace(params.data),
         },
         {
           field: 'adjusted_value',
-          headerName: 'Adjusted P&L',
+          headerName: 'Adjusted Daily P&L',
+          headerTooltip: 'P&L after business rules are applied',
           flex: 1.2,
           valueGetter: (params) => parseFloat(params.data?.adjusted_value?.daily || 0),
           valueFormatter: (params) => {
-            if (!params.value) return '$0.00'
-            return `$${params.value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+            if (!params.value && params.value !== 0) return ''
+            const value = typeof params.value === 'number' ? params.value : parseFloat(params.value)
+            if (isNaN(value)) return ''
+            
+            const isNegative = value < 0
+            const absValue = Math.abs(value)
+            const formatted = new Intl.NumberFormat('en-US', {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            }).format(absValue)
+            
+            return isNegative ? `(${formatted})` : formatted
           },
           cellStyle: { textAlign: 'right', cursor: 'pointer' },
           onCellClicked: (params) => loadCalculationTrace(params.data),
@@ -412,14 +759,22 @@ const ExecutiveDashboard: React.FC = () => {
         {
           field: 'plug',
           headerName: 'Reconciliation Plug',
-          headerTooltip: 'Plug = Natural GL - Adjusted P&L (Golden Equation: Natural = Adjusted + Plug)',
+          headerTooltip: 'Plug = Original Daily P&L - Adjusted Daily P&L (Golden Equation: Original = Adjusted + Plug)',
           flex: 1.2,
           valueGetter: (params) => parseFloat(params.data?.plug?.daily || 0),
           valueFormatter: (params) => {
-            if (!params.value) return '$0.00'
-            const value = params.value
-            const formatted = `$${Math.abs(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-            return value < 0 ? `(${formatted})` : formatted
+            if (!params.value && params.value !== 0) return ''
+            const value = typeof params.value === 'number' ? params.value : parseFloat(params.value)
+            if (isNaN(value)) return ''
+            
+            const isNegative = value < 0
+            const absValue = Math.abs(value)
+            const formatted = new Intl.NumberFormat('en-US', {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            }).format(absValue)
+            
+            return isNegative ? `(${formatted})` : formatted
           },
           cellStyle: (params) => {
             const value = parseFloat(params.data?.plug?.daily || 0)
@@ -434,15 +789,11 @@ const ExecutiveDashboard: React.FC = () => {
         },
         {
           field: 'rule',
-          headerName: 'Rule Reference',
-          flex: 1,
-          cellRenderer: (params: any) => {
-            if (!params.data?.rule?.logic_en) {
-              return '<span style="color: #999;">—</span>'
-            }
-            return `<span class="rule-badge">Rule #${params.data.rule.rule_id || 'N/A'}</span>`
-          },
-          cellStyle: { textAlign: 'center' },
+          headerName: 'Business Rule',
+          headerTooltip: 'Business rule applied to this node',
+          flex: 1.5,
+          cellRenderer: BusinessRuleCellRenderer,
+          cellStyle: { textAlign: 'left', paddingLeft: '8px' },
         },
       ]
       return standardCols
@@ -563,6 +914,32 @@ const ExecutiveDashboard: React.FC = () => {
             ))}
           </select>
           
+          {/* Run Selector - Step 4.2: Date-anchored runs */}
+          {selectedUseCaseId && runs.length > 0 && (
+            <>
+              <label htmlFor="run-select" style={{ marginLeft: '16px', fontWeight: '500' }}>Run:</label>
+              <select
+                id="run-select"
+                className="use-case-select"
+                value={selectedRunId}
+                onChange={(e) => {
+                  setSelectedRunId(e.target.value)
+                  if (e.target.value) {
+                    loadResults(selectedUseCaseId, e.target.value)
+                  }
+                }}
+                style={{ minWidth: '250px', marginLeft: '8px' }}
+              >
+                <option value="">Select a run...</option>
+                {runs.map(run => (
+                  <option key={run.id || run.run_id} value={run.id || run.run_id}>
+                    {run.run_name || run.version_tag || 'Run'} - {new Date(run.executed_at || run.run_timestamp || '').toLocaleString()}
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
+          
           {/* View Controller */}
           <div style={{ marginLeft: '16px', display: 'flex', gap: '8px', alignItems: 'center' }}>
             <label style={{ fontSize: '12px', fontWeight: '500' }}>View:</label>
@@ -659,7 +1036,7 @@ const ExecutiveDashboard: React.FC = () => {
         fontSize: '13px',
         color: '#0c4a6e'
       }}>
-        <strong>Golden Equation:</strong> Natural GL Baseline = Adjusted P&L + Reconciliation Plug
+        <strong>Golden Equation:</strong> Original Daily P&L = Adjusted Daily P&L + Reconciliation Plug
         <span style={{ marginLeft: '12px', fontSize: '12px', color: '#64748b' }}>
           (All calculations verified using Decimal precision)
         </span>
@@ -688,6 +1065,13 @@ const ExecutiveDashboard: React.FC = () => {
             loading={loading}
             getRowStyle={getRowStyle}
             rowSelection="single"
+            suppressRowGroupHidesColumns={true}
+            autoGroupColumnDef={{
+              field: 'node_name',
+              headerName: 'Dimension Node',
+              flex: 2,
+              cellRenderer: 'agGroupCellRenderer',
+            }}
           />
         </div>
       </div>
@@ -757,7 +1141,7 @@ const ExecutiveDashboard: React.FC = () => {
                 <strong>Calculation Steps (Leaf to Parent):</strong>
                 <div style={{ marginTop: '8px', padding: '12px', backgroundColor: '#f9fafb', borderRadius: '4px' }}>
                   <div style={{ marginBottom: '8px' }}>
-                    <strong>1. Natural GL Baseline:</strong>
+                    <strong>1. Original Daily P&L:</strong>
                     <div style={{ marginLeft: '16px', fontSize: '13px', color: '#6b7280' }}>
                       Daily: ${parseFloat(traceNode.natural_value.daily).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                       <br />
@@ -777,7 +1161,7 @@ const ExecutiveDashboard: React.FC = () => {
                   )}
                   
                   <div style={{ marginBottom: '8px' }}>
-                    <strong>3. Adjusted P&L:</strong>
+                    <strong>3. Adjusted Daily P&L:</strong>
                     <div style={{ marginLeft: '16px', fontSize: '13px', color: '#6b7280' }}>
                       Daily: ${parseFloat(traceNode.adjusted_value.daily).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                       <br />

@@ -462,19 +462,22 @@ def save_calculation_results(
         })
         
         # Format measure_vector (adjusted values)
+        # CRITICAL FIX: Convert to float with rounding, not string, to prevent InFailedSqlTransaction
+        # Use round(float(val), 4) to ensure clean numeric data for PostgreSQL JSONB
         measure_vector = {
-            'daily': str(adjusted['daily']),
-            'mtd': str(adjusted['mtd']),
-            'ytd': str(adjusted['ytd']),
-            'pytd': str(adjusted['pytd']),
+            'daily': round(float(adjusted['daily']), 4),
+            'mtd': round(float(adjusted['mtd']), 4),
+            'ytd': round(float(adjusted['ytd']), 4),
+            'pytd': round(float(adjusted['pytd']), 4),
         }
         
         # Format plug_vector
+        # CRITICAL FIX: Convert to float with rounding, not string
         plug_vector = {
-            'daily': str(plug['daily']),
-            'mtd': str(plug['mtd']),
-            'ytd': str(plug['ytd']),
-            'pytd': str(plug['pytd']),
+            'daily': round(float(plug['daily']), 4),
+            'mtd': round(float(plug['mtd']), 4),
+            'ytd': round(float(plug['ytd']), 4),
+            'pytd': round(float(plug['pytd']), 4),
         }
         
         # Check if node has override
@@ -497,9 +500,13 @@ def save_calculation_results(
         )
         result_objects.append(result_obj)
     
-    # Bulk insert
-    session.bulk_save_objects(result_objects)
-    session.commit()
-    
-    return len(result_objects)
+    # Bulk insert with error handling
+    try:
+        session.bulk_save_objects(result_objects)
+        session.commit()
+        return len(result_objects)
+    except Exception as e:
+        # CRITICAL: Rollback on any error during bulk insert
+        session.rollback()
+        raise RuntimeError(f"Failed to save calculation results: {e}") from e
 

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { AgGridReact } from 'ag-grid-react'
 import { ColDef, GridApi, ColumnApi, ICellRendererParams } from 'ag-grid-community'
 import axios from 'axios'
+import { useReportingContext } from '../contexts/ReportingContext'
 import 'ag-grid-community/styles/ag-grid.css'
 import 'ag-grid-community/styles/ag-theme-alpine.css'
 import './RuleEditor.css'
@@ -135,6 +136,121 @@ const ImpactSparklineRenderer: React.FC<ICellRendererParams> = (params) => {
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
+// TreeNodeList Component for Sidebar
+const TreeNodeList: React.FC<{
+  nodes: HierarchyNode[]
+  selectedNodeId: string | null
+  onNodeSelect: (nodeId: string) => void
+  rules: Map<string, any>
+  expandedNodes: Set<string>
+  onToggleExpand: (nodeId: string) => void
+  depth?: number
+  showAllNodes?: boolean // If true, show all nodes even if they have 0 rules
+}> = ({ nodes, selectedNodeId, onNodeSelect, rules, expandedNodes, onToggleExpand, depth = 0, showAllNodes = true }) => {
+  return (
+    <div>
+      {nodes.map((node) => {
+        const hasChildren = node.children && node.children.length > 0
+        const isExpanded = expandedNodes.has(node.node_id)
+        const hasRule = rules.has(node.node_id)
+        const isSelected = selectedNodeId === node.node_id
+        
+        return (
+          <div key={node.node_id}>
+              <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                padding: '6px 8px',
+                paddingLeft: `${8 + depth * 20}px`,
+                cursor: 'pointer',
+                backgroundColor: isSelected ? '#dbeafe' : 'transparent',
+                borderRadius: '4px',
+                marginBottom: '1px',
+                fontSize: '12px',
+                transition: 'background-color 0.15s ease',
+                borderLeft: depth > 0 ? `2px solid ${isSelected ? '#3b82f6' : 'transparent'}` : 'none'
+              }}
+              onClick={() => {
+                if (hasChildren) {
+                  onToggleExpand(node.node_id)
+                }
+                onNodeSelect(node.node_id)
+              }}
+              onMouseEnter={(e) => {
+                if (!isSelected) {
+                  e.currentTarget.style.backgroundColor = '#f3f4f6'
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!isSelected) {
+                  e.currentTarget.style.backgroundColor = 'transparent'
+                }
+              }}
+            >
+              {hasChildren && (
+                <span style={{ 
+                  marginRight: '6px', 
+                  fontSize: '11px', 
+                  color: '#6b7280',
+                  width: '12px',
+                  display: 'inline-block',
+                  textAlign: 'center'
+                }}>
+                  {isExpanded ? '▼' : '▶'}
+                </span>
+              )}
+              {!hasChildren && (
+                <span style={{ 
+                  marginRight: '18px',
+                  color: '#9ca3af',
+                  fontSize: '10px'
+                }}>•</span>
+              )}
+              <span style={{ 
+                flex: 1, 
+                fontWeight: isSelected ? '600' : depth === 0 ? '600' : 'normal',
+                color: depth === 0 ? '#1f2937' : '#374151'
+              }}>
+                {node.node_name || node.node_id}
+              </span>
+              {hasRule && (
+                <span
+                  style={{
+                    background: 'linear-gradient(135deg, #fef3c7, #fbbf24)',
+                    color: '#d97706',
+                    borderRadius: '3px',
+                    padding: '2px 6px',
+                    fontSize: '10px',
+                    fontWeight: '600',
+                    fontFamily: 'monospace',
+                    marginLeft: '4px',
+                    boxShadow: '0 1px 2px rgba(0,0,0,0.1)'
+                  }}
+                  title="Has active rule"
+                >
+                  fx
+                </span>
+              )}
+            </div>
+            {hasChildren && isExpanded && (
+              <TreeNodeList
+                nodes={node.children}
+                selectedNodeId={selectedNodeId}
+                onNodeSelect={onNodeSelect}
+                rules={rules}
+                expandedNodes={expandedNodes}
+                onToggleExpand={onToggleExpand}
+                depth={depth + 1}
+              />
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 interface HierarchyNode {
   node_id: string
   node_name: string
@@ -177,6 +293,9 @@ interface RulePreview {
 }
 
 const RuleEditor: React.FC = () => {
+  // Use ReportingContext for globalTotal
+  const { globalTotal } = useReportingContext()
+  
   // Use Case Management
   const [useCases, setUseCases] = useState<UseCase[]>([])
   const [selectedUseCaseId, setSelectedUseCaseId] = useState<string>('')
@@ -188,6 +307,9 @@ const RuleEditor: React.FC = () => {
   const [selectedNode, setSelectedNode] = useState<any>(null)
   const [selectedNodes, setSelectedNodes] = useState<any[]>([]) // Multi-node selection
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set()) // Track expanded nodes for Tab 2 & 3 unification
+  
+  // Hierarchy Tree State (for future use if needed)
+  const [hierarchyTree, setHierarchyTree] = useState<HierarchyNode[]>([])
 
   // Rules State
   const [rules, setRules] = useState<Map<string, any>>(new Map()) // Map of node_id -> rule
@@ -238,6 +360,7 @@ const RuleEditor: React.FC = () => {
   // Loading & Error States
   const [loading, setLoading] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
+  const [errorDetails, setErrorDetails] = useState<{ message: string; statusCode?: number; canRetry: boolean } | null>(null)
 
   const gridRef = useRef<AgGridReact>(null)
 
@@ -264,11 +387,128 @@ const RuleEditor: React.FC = () => {
     loadUseCases()
   }, [])
 
-  // Load hierarchy and rules when use case is selected
+  // Listen for use case deletion events to refresh the list
   useEffect(() => {
-    if (selectedUseCase) {
-      loadHierarchy(selectedUseCase.atlas_structure_id)
-      loadRules(selectedUseCaseId)
+    const handleUseCaseDeleted = async (event: any) => {
+      const deletedUseCaseId = event.detail?.useCaseId
+      const currentSelectedId = selectedUseCaseId
+      
+      // Reload use cases
+      await loadUseCases()
+      
+      // Clear selection if the deleted use case was the one selected
+      if (currentSelectedId === deletedUseCaseId) {
+        setSelectedUseCaseId('')
+        setSelectedUseCase(null)
+        setRowData([])
+      }
+    }
+
+    window.addEventListener('useCaseDeleted', handleUseCaseDeleted as EventListener)
+    return () => {
+      window.removeEventListener('useCaseDeleted', handleUseCaseDeleted as EventListener)
+    }
+  }, [selectedUseCaseId])
+
+  // FORCE REFRESH: Clear rules immediately on ID change to prevent stale state
+  useEffect(() => {
+    let isMounted = true
+
+    if (selectedUseCaseId) {
+      // Step 1: Wipe the board clean (Visual feedback)
+      setRules(new Map())
+      setRulesLoading(true)
+
+      // Step 2: Fetch new rules with Cache-Busting
+      const fetchRules = async () => {
+        try {
+          const response = await axios.get(
+            `${API_BASE_URL}/api/v1/use-cases/${selectedUseCaseId}/rules?t=${Date.now()}`
+          )
+          if (isMounted) {
+            const rulesList = response.data || []
+            
+            // Create a Map for quick lookup: node_id -> rule with impact
+            const rulesMap = new Map<string, any>()
+            let totalAffectedRows = 0
+            let totalRows = 0
+            let totalAdjustment = 0
+            
+            // Load impact for each rule
+            for (const rule of rulesList) {
+              if (rule.node_id && rule.sql_where) {
+                try {
+                  // Get impact preview
+                  const previewResponse = await axios.post(
+                    `${API_BASE_URL}/api/v1/rules/preview`,
+                    { sql_where: rule.sql_where }
+                  )
+                  
+                  // Estimate P&L impact (simplified: use affected_rows * average daily_pnl)
+                  const estimatedImpact = previewResponse.data.affected_rows * 100 // Placeholder calculation
+                  
+                  rulesMap.set(rule.node_id, {
+                    ...rule,
+                    affected_rows: previewResponse.data.affected_rows,
+                    total_rows: previewResponse.data.total_rows,
+                    percentage: previewResponse.data.percentage,
+                    estimatedImpact: estimatedImpact
+                  })
+                  
+                  totalAffectedRows += previewResponse.data.affected_rows
+                  totalRows = previewResponse.data.total_rows
+                  totalAdjustment += estimatedImpact
+                } catch (e) {
+                  // If preview fails, still add rule without impact
+                  rulesMap.set(rule.node_id, {
+                    ...rule,
+                    affected_rows: 0,
+                    total_rows: 0,
+                    percentage: 0,
+                    estimatedImpact: 0
+                  })
+                }
+              }
+            }
+            
+            setRules(rulesMap)
+            
+            // Update audit summary
+            setAuditSummary({
+              totalRules: rulesMap.size,
+              affectedRows: totalAffectedRows,
+              totalRows: totalRows,
+              totalAdjustment: totalAdjustment
+            })
+          }
+        } catch (error) {
+          console.error("Failed to load rules", error)
+          if (isMounted) {
+            setRules(new Map())
+            setAuditSummary(null)
+          }
+        } finally {
+          if (isMounted) {
+            setRulesLoading(false)
+          }
+        }
+      }
+
+      fetchRules()
+    } else {
+      // Clear rules if no use case selected
+      setRules(new Map())
+      setAuditSummary(null)
+      setRulesLoading(false)
+    }
+
+    return () => { isMounted = false }
+  }, [selectedUseCaseId]) // CRITICAL: Run whenever ID changes
+
+  // Load hierarchy when use case is selected
+  useEffect(() => {
+    if (selectedUseCase && selectedUseCaseId) {
+      loadHierarchyForUseCase(selectedUseCaseId, selectedUseCase.atlas_structure_id)
       
       // Load shared tree state (Tab 2 & 3 unification)
       const stateKey = getTreeStateKey(selectedUseCase.atlas_structure_id)
@@ -304,7 +544,23 @@ const RuleEditor: React.FC = () => {
     const result: any[] = []
     
     for (const node of nodes) {
-      const path = node.path || parentPath.concat([node.node_name])
+      // Ensure path is always a valid array
+      let path: string[] = []
+      if (node.path && Array.isArray(node.path) && node.path.length > 0) {
+        // Use path from API (from SQL CTE)
+        path = node.path
+      } else if (parentPath.length > 0) {
+        // Build path from parent path + current node name
+        path = parentPath.concat([node.node_name || node.node_id || 'Unknown'])
+      } else {
+        // Root node - path is just the node name
+        path = [node.node_name || node.node_id || 'Unknown']
+      }
+      
+      // Validate path is never empty
+      if (path.length === 0) {
+        path = [node.node_name || node.node_id || 'Unknown']
+      }
       
       // Check if this node has an active rule (safe access with null check)
       const hasRule = rules && rules instanceof Map && rules.has(node.node_id)
@@ -312,11 +568,15 @@ const RuleEditor: React.FC = () => {
       
       const row = {
         ...node,
-        path, // AG-Grid treeData uses getDataPath to extract this
+        path, // AG-Grid treeData uses getDataPath to extract this - MUST be array of strings
         hasRule: !!hasRule, // Flag for conditional rendering (ensure boolean)
         rule: rule || null, // Store rule data for recall
         ruleImpact: rule?.estimatedImpact || 0, // Dollar impact for heatmap
         hasConflict: false, // Will be set when rule stack is loaded
+        // Parse P&L values from strings to numbers for grid display
+        daily_pnl: parseFloat(node.daily_pnl) || 0,
+        mtd_pnl: parseFloat(node.mtd_pnl) || 0,
+        ytd_pnl: parseFloat(node.ytd_pnl) || 0,
       }
       result.push(row)
       
@@ -334,7 +594,9 @@ const RuleEditor: React.FC = () => {
     if (selectedUseCase && rules.size >= 0 && rowData.length > 0) {
       // Reload hierarchy to refresh rule icons
       // Only reload if rules actually changed (not on initial load)
-      loadHierarchy(selectedUseCase.atlas_structure_id)
+      if (selectedUseCase && selectedUseCaseId) {
+        loadHierarchyForUseCase(selectedUseCaseId, selectedUseCase.atlas_structure_id)
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rules.size]) // Only trigger when rules count changes (avoid infinite loop)
@@ -437,25 +699,215 @@ const RuleEditor: React.FC = () => {
     }
   }
 
+  // Load hierarchy using results endpoint for Adjusted P&L (with fallback to hierarchy endpoint)
+  const loadHierarchyForUseCase = useCallback(async (useCaseId: string, structureId: string) => {
+    if (!useCaseId || !structureId) return
+
+    // CRITICAL: Log current use case ID to verify it's correct
+    console.log('='.repeat(80))
+    console.log('CURRENT USE CASE ID IN TAB 3:', useCaseId)
+    console.log('STRUCTURE ID:', structureId)
+    console.log('='.repeat(80))
+
+    setLoading(true)
+    setError(null)
+    setErrorDetails(null)
+
+    try {
+      // Try results endpoint first (for Adjusted P&L values)
+      let response
+      let hierarchy: HierarchyNode[] = []
+      
+      try {
+        // Try results endpoint to get Adjusted P&L
+        // CRITICAL: Add timestamp to bust server-side caching
+        const timestamp = Date.now()
+        const resultsResponse = await axios.get(
+          `${API_BASE_URL}/api/v1/use-cases/${useCaseId}/results?t=${timestamp}`
+        )
+        
+        // Results endpoint returns different format - convert to hierarchy format
+        // CRITICAL: If results are empty, immediately fall back to unified_pnl_service via discovery endpoint
+        if (resultsResponse.data?.hierarchy && resultsResponse.data.hierarchy.length > 0) {
+          // Convert ResultsNode format to HierarchyNode format
+          const convertResultsToHierarchy = (nodes: any[]): HierarchyNode[] => {
+            return nodes.map(node => ({
+              node_id: node.node_id,
+              node_name: node.node_name,
+              parent_node_id: node.parent_node_id,
+              depth: node.depth || 0,
+              is_leaf: node.is_leaf || false,
+              // Use adjusted_value from results (Adjusted P&L)
+              daily_pnl: node.adjusted_value?.daily?.toString() || node.natural_value?.daily?.toString() || '0',
+              mtd_pnl: node.adjusted_value?.mtd?.toString() || node.natural_value?.mtd?.toString() || '0',
+              ytd_pnl: node.adjusted_value?.ytd?.toString() || node.natural_value?.ytd?.toString() || '0',
+              path: node.path || [node.node_name],
+              children: node.children ? convertResultsToHierarchy(node.children) : []
+            }))
+          }
+          
+          hierarchy = convertResultsToHierarchy(resultsResponse.data.hierarchy)
+          console.log('Tab 3: Loaded Adjusted P&L from results endpoint')
+        } else {
+          // CRITICAL: No results available - immediately fall back to discovery endpoint (unified_pnl_service)
+          console.log('Tab 3: No results found, falling back to discovery endpoint (unified_pnl_service baseline)')
+          throw new Error('No results available - using baseline from unified_pnl_service')
+        }
+      } catch (resultsErr: any) {
+        // Fallback to hierarchy endpoint (natural rollups)
+        console.warn('Tab 3: Results endpoint failed or no results, using hierarchy endpoint:', resultsErr)
+        try {
+          // CRITICAL: Add timestamp to bust server-side caching
+          const timestamp = Date.now()
+          response = await axios.get<DiscoveryResponse>(
+            `${API_BASE_URL}/api/v1/use-cases/${useCaseId}/hierarchy?t=${timestamp}`
+          )
+          hierarchy = response.data?.hierarchy || []
+        } catch (useCaseErr: any) {
+          // Final fallback to discovery endpoint
+          // CRITICAL: Add timestamp and use_case_id to bust server-side caching
+          console.warn('Tab 3: Use-case hierarchy endpoint failed, falling back to discovery:', useCaseErr)
+          const timestamp = Date.now()
+          response = await axios.get<DiscoveryResponse>(
+            `${API_BASE_URL}/api/v1/discovery`,
+            { params: { structure_id: structureId, use_case_id: useCaseId, t: timestamp } }
+          )
+          hierarchy = response.data?.hierarchy || []
+        }
+      }
+
+      if (hierarchy.length === 0) {
+        setError('No hierarchy data found.')
+        setErrorDetails({
+          message: 'No hierarchy data found. The structure may be empty.',
+          canRetry: true
+        })
+        setRowData([])
+        setHierarchyTree([])
+        setLoading(false)
+        return
+      }
+
+      // Store hierarchy tree for sidebar
+      setHierarchyTree(hierarchy)
+
+      // Expand all nodes by default in sidebar
+      const expandAllNodes = (nodes: HierarchyNode[]): Set<string> => {
+        const expanded = new Set<string>()
+        const traverse = (nodeList: HierarchyNode[]) => {
+          for (const node of nodeList) {
+            if (node.children && node.children.length > 0) {
+              expanded.add(node.node_id)
+              traverse(node.children)
+            }
+          }
+        }
+        traverse(nodes)
+        return expanded
+      }
+      setExpandedNodes(expandAllNodes(hierarchy))
+
+      // Flatten hierarchy for AG-Grid (with rule information)
+      try {
+        const flatData = flattenHierarchy(hierarchy)
+        
+        // Debug: Log hierarchy data
+        console.log('RuleEditor: Hierarchy loaded successfully', {
+          hierarchyLength: hierarchy.length,
+          flatDataLength: flatData.length,
+          firstNode: flatData[0],
+          samplePaths: flatData.slice(0, 5).map(d => ({ node_name: d.node_name, path: d.path }))
+        })
+        
+        // Validate paths
+        const invalidPaths = flatData.filter(d => !d.path || !Array.isArray(d.path) || d.path.length === 0)
+        if (invalidPaths.length > 0) {
+          console.warn('RuleEditor: Found nodes with invalid paths:', invalidPaths)
+          // Fix invalid paths
+          invalidPaths.forEach(node => {
+            node.path = [node.node_name || node.node_id || 'Unknown']
+          })
+        }
+        
+        setRowData(flatData)
+      } catch (flattenError: any) {
+        console.error('Failed to flatten hierarchy:', flattenError)
+        // Fallback: flatten without rules if there's an error
+        const fallbackData: any[] = []
+        const processNode = (node: HierarchyNode, parentPath: string[] = []) => {
+          const path = node.path || parentPath.concat([node.node_name])
+          fallbackData.push({
+            ...node,
+            path,
+            hasRule: false,
+            rule: null
+          })
+          if (node.children && node.children.length > 0) {
+            node.children.forEach(child => processNode(child, path))
+          }
+        }
+        hierarchy.forEach(node => processNode(node))
+        setRowData(fallbackData)
+      }
+    } catch (err: any) {
+      console.error('Failed to load hierarchy:', err)
+      const statusCode = err.response?.status
+      const errorMessage = err.response?.data?.detail || err.message || 'Failed to load hierarchy data.'
+      
+      // Log detailed error for debugging
+      console.error('Hierarchy load error details:', {
+        statusCode,
+        message: errorMessage,
+        response: err.response?.data,
+        useCaseId,
+        structureId
+      })
+      
+      setError(errorMessage)
+      setErrorDetails({
+        message: errorMessage,
+        statusCode,
+        canRetry: statusCode === 404 || statusCode === 500 || statusCode >= 500 || !statusCode
+      })
+      
+      // Set empty data to prevent grid errors
+      setRowData([])
+      setHierarchyTree([])
+    } finally {
+      setLoading(false)
+    }
+  }, [flattenHierarchy])
+
   const loadHierarchy = useCallback(async (structureId: string) => {
     if (!structureId) return
 
     setLoading(true)
     setError(null)
+    setErrorDetails(null)
 
     try {
+      // CRITICAL: Add timestamp to bust server-side caching
+      const timestamp = Date.now()
       const response = await axios.get<DiscoveryResponse>(
         `${API_BASE_URL}/api/v1/discovery`,
-        { params: { structure_id: structureId } }
+        { params: { structure_id: structureId, t: timestamp } }
       )
 
       const hierarchy = response.data?.hierarchy || []
       if (hierarchy.length === 0) {
         setError('No hierarchy data found.')
+        setErrorDetails({
+          message: 'No hierarchy data found. The structure may be empty.',
+          canRetry: true
+        })
         setRowData([])
+        setHierarchyTree([])
         setLoading(false)
         return
       }
+
+      // Store hierarchy tree for sidebar
+      setHierarchyTree(hierarchy)
 
       // Flatten hierarchy for AG-Grid (with rule information)
       // Safe call - flattenHierarchy handles null/undefined rules
@@ -483,7 +935,27 @@ const RuleEditor: React.FC = () => {
       }
     } catch (err: any) {
       console.error('Failed to load hierarchy:', err)
-      setError('Failed to load hierarchy data.')
+      const statusCode = err.response?.status
+      const errorMessage = err.response?.data?.detail || err.message || 'Failed to load hierarchy data.'
+      
+      // Log detailed error for debugging
+      console.error('Hierarchy load error details:', {
+        statusCode,
+        message: errorMessage,
+        response: err.response?.data,
+        url: `${API_BASE_URL}/api/v1/discovery?structure_id=${structureId}`
+      })
+      
+      setError(errorMessage)
+      setErrorDetails({
+        message: errorMessage,
+        statusCode,
+        canRetry: statusCode === 404 || statusCode === 500 || statusCode >= 500 || !statusCode
+      })
+      
+      // Set empty data to prevent grid errors
+      setRowData([])
+      setHierarchyTree([])
     } finally {
       setLoading(false)
     }
@@ -559,12 +1031,28 @@ const RuleEditor: React.FC = () => {
     setConflictCount(conflicts)
   }, [rules, ruleStack, selectedUseCaseId])
 
-  // Check calculation freshness
+  // Check calculation freshness - Use backend's is_outdated flag instead of client-side comparison
   useEffect(() => {
-    if (!selectedUseCaseId || !lastCalculated) return
+    if (!selectedUseCaseId) return
     
     const checkFreshness = async () => {
       try {
+        // Get results from backend which includes is_outdated flag (with grace period)
+        const response = await axios.get(
+          `${API_BASE_URL}/api/v1/use-cases/${selectedUseCaseId}/results`
+        )
+        
+        // Use backend's is_outdated flag (computed with 2-second grace period)
+        if (response.data?.is_outdated !== undefined) {
+          setIsCalculationOutdated(response.data.is_outdated)
+        }
+        
+        // Also update lastCalculated timestamp if available
+        if (response.data?.run_timestamp) {
+          setLastCalculated(response.data.run_timestamp)
+        }
+        
+        // Get latest rule modification time for display purposes
         const rulesResponse = await axios.get(
           `${API_BASE_URL}/api/v1/use-cases/${selectedUseCaseId}/rules`
         )
@@ -578,11 +1066,6 @@ const RuleEditor: React.FC = () => {
           
           if (latestRule && latestRule.last_modified_at) {
             setRulesLastModified(latestRule.last_modified_at)
-            if (new Date(latestRule.last_modified_at) > new Date(lastCalculated)) {
-              setIsCalculationOutdated(true)
-            } else {
-              setIsCalculationOutdated(false)
-            }
           }
         }
       } catch (err) {
@@ -591,9 +1074,9 @@ const RuleEditor: React.FC = () => {
     }
     
     checkFreshness()
-  }, [selectedUseCaseId, lastCalculated])
+  }, [selectedUseCaseId])
 
-  // Load last calculated timestamp
+  // Load last calculated timestamp and outdated status
   useEffect(() => {
     if (!selectedUseCaseId) return
     
@@ -605,9 +1088,14 @@ const RuleEditor: React.FC = () => {
         if (response.data?.run_timestamp) {
           setLastCalculated(response.data.run_timestamp)
         }
+        // Use backend's is_outdated flag (computed with grace period)
+        if (response.data?.is_outdated !== undefined) {
+          setIsCalculationOutdated(response.data.is_outdated)
+        }
       } catch (err) {
         // No runs yet
         setLastCalculated(null)
+        setIsCalculationOutdated(false)
       }
     }
     
@@ -657,7 +1145,32 @@ const RuleEditor: React.FC = () => {
     )
   }
 
-  // AG-Grid Column Definitions (Institutional Layout)
+  // Financial formatter (standard format)
+  const financialFormatter = (params: any) => {
+    if (!params.value && params.value !== 0) return ''
+    const value = typeof params.value === 'number' ? params.value : parseFloat(params.value)
+    if (isNaN(value)) return ''
+    
+    const isNegative = value < 0
+    const absValue = Math.abs(value)
+    const formatted = new Intl.NumberFormat('en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(absValue)
+    
+    return isNegative ? `(${formatted})` : formatted
+  }
+
+  // Cell class rules for red negatives
+  const cellClassRules = {
+    'negative-value': (params: any) => {
+      if (params.value == null) return false
+      const value = typeof params.value === 'number' ? params.value : parseFloat(params.value)
+      return !isNaN(value) && value < 0
+    }
+  }
+
+  // AG-Grid Column Definitions (Unified with Tab 2)
   const columnDefs: ColDef[] = [
     {
       field: 'business_rule',
@@ -666,57 +1179,58 @@ const RuleEditor: React.FC = () => {
       cellRenderer: BusinessRuleCellRenderer,
     },
     {
-      field: 'impact',
-      headerName: 'Impact',
-      flex: 1,
-      cellRenderer: ImpactSparklineRenderer,
-      cellStyle: { textAlign: 'center' },
-      tooltipValueGetter: (params) => {
-        const natural = parseFloat(params.data?.daily_pnl || 0)
-        const rule = params.data?.rule
-        const adjusted = rule?.estimatedImpact || 0
-        const delta = adjusted - natural
-        
-        if (!rule) return 'No rule applied'
-        
-        return `Natural: $${natural.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} → Adjusted: $${adjusted.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (Delta: $${delta.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`
-      },
-    },
-    {
-      field: 'created_by',
-      headerName: 'Created By',
-      flex: 1.2,
-      valueGetter: (params) => {
-        return params.data?.rule?.last_modified_by || '—'
-      },
-      cellStyle: { color: '#6b7280' },
-    },
-    {
       field: 'daily_pnl',
       headerName: 'Daily P&L',
-      flex: 1.2,
-      valueFormatter: (params) => {
-        if (!params.value) return '$0.00'
-        const num = parseFloat(params.value)
-        return `$${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-      },
+      width: 150,
+      valueFormatter: financialFormatter,
+      cellClass: 'monospace-number',
+      cellClassRules: cellClassRules,
+      cellStyle: { textAlign: 'right' },
+    },
+    {
+      field: 'mtd_pnl',
+      headerName: 'MTD P&L',
+      width: 150,
+      valueFormatter: financialFormatter,
+      cellClass: 'monospace-number',
+      cellClassRules: cellClassRules,
+      cellStyle: { textAlign: 'right' },
+    },
+    {
+      field: 'ytd_pnl',
+      headerName: 'YTD P&L',
+      width: 150,
+      valueFormatter: financialFormatter,
+      cellClass: 'monospace-number',
+      cellClassRules: cellClassRules,
       cellStyle: { textAlign: 'right' },
     },
   ]
 
-  // Auto Group Column Definition (PBI Style)
+  // Auto Group Column Definition (Unified with Tab 2 - Power BI style)
+  // EXACT MATCH to DiscoveryScreen.tsx styling and configuration
   const autoGroupColumnDef: ColDef = {
-    headerName: 'Node Name',
+    headerName: 'Hierarchy',
     field: 'node_name',
-    flex: 2.5,
+    minWidth: 350,
+    pinned: 'left',
     checkboxSelection: true,
     headerCheckboxSelection: true,
     cellRenderer: 'agGroupCellRenderer',
     cellRendererParams: {
       innerRenderer: (params: ICellRendererParams) => {
-        // Pass the node_name value explicitly to the inner renderer
+        // Pass the node_name value explicitly to the inner renderer with rule icons
+        // This matches DiscoveryScreen's nodeNameCellRenderer styling
         return <NodeNameCellRenderer {...params} value={params.value || params.data?.node_name || ''} />
       },
+    },
+    cellStyle: (params: any) => {
+      // EXACT MATCH to DiscoveryScreen.tsx cellStyle
+      const depth = params.data?.depth || 0
+      return {
+        backgroundColor: depth === 0 ? '#f0f4f8' : depth === 1 ? '#f9f9f9' : '#ffffff',
+        borderLeft: depth > 1 ? '1px solid #e0e0e0' : 'none',
+      }
     },
     onCellClicked: (params) => {
       const target = params.event?.target as HTMLElement
@@ -1198,8 +1712,8 @@ const RuleEditor: React.FC = () => {
       // Refresh rules and hierarchy to update icons
       if (selectedUseCaseId) {
         await loadRules(selectedUseCaseId)
-        if (selectedUseCase) {
-          await loadHierarchy(selectedUseCase.atlas_structure_id)
+        if (selectedUseCase && selectedUseCaseId) {
+          await loadHierarchyForUseCase(selectedUseCaseId, selectedUseCase.atlas_structure_id)
         }
       }
 
@@ -1252,8 +1766,8 @@ const RuleEditor: React.FC = () => {
 
       // Refresh rules and hierarchy
       await loadRules(selectedUseCaseId)
-      if (selectedUseCase) {
-        await loadHierarchy(selectedUseCase.atlas_structure_id)
+      if (selectedUseCase && selectedUseCaseId) {
+        await loadHierarchyForUseCase(selectedUseCaseId, selectedUseCase.atlas_structure_id)
       }
 
       setCalculationResult(`Rules deleted successfully for ${nodeIds.length} node(s)!`)
@@ -1299,7 +1813,8 @@ const RuleEditor: React.FC = () => {
     }
 
     setCalculating(true)
-    setError(null)
+    setError(null) // Clear error when new calculation starts
+    setErrorDetails(null) // Clear error details
     setCalculationResult(null)
 
     try {
@@ -1322,6 +1837,18 @@ const RuleEditor: React.FC = () => {
       if (selectedUseCaseId) {
         loadRules(selectedUseCaseId)
       }
+      
+      // Reload hierarchy to show calculated P&L values
+      if (selectedUseCase && selectedUseCaseId) {
+        await loadHierarchyForUseCase(selectedUseCaseId, selectedUseCase.atlas_structure_id)
+      }
+      
+      // UI UNIFICATION: Force page reload to discard cached zeros and fetch fresh results
+      // This is a temporary measure to ensure React state and AG-Grid refresh completely
+      console.log('Run Waterfall completed successfully. Reloading page to refresh state...')
+      setTimeout(() => {
+        window.location.reload()
+      }, 1000) // Small delay to show success message before reload
     } catch (err: any) {
       console.error('Failed to run calculation:', err)
       setError(err.response?.data?.detail || 'Failed to run calculation. Please try again.')
@@ -1445,8 +1972,47 @@ const RuleEditor: React.FC = () => {
 
       {/* Error/Success Messages */}
       {error && (
-        <div className="message error-message">
-          {error}
+        <div className="message error-message" style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          padding: '12px 16px',
+          backgroundColor: '#fee2e2',
+          border: '1px solid #fecaca',
+          borderRadius: '6px',
+          color: '#991b1b'
+        }}>
+          <div>
+            <strong>Error:</strong> {error}
+            {errorDetails?.statusCode && (
+              <span style={{ marginLeft: '8px', fontSize: '0.875rem', color: '#7f1d1d' }}>
+                (Status: {errorDetails.statusCode})
+              </span>
+            )}
+          </div>
+          {errorDetails?.canRetry && selectedUseCase && (
+            <button
+              onClick={() => {
+                setError(null)
+                setErrorDetails(null)
+                if (selectedUseCase && selectedUseCaseId) {
+                  loadHierarchyForUseCase(selectedUseCaseId, selectedUseCase.atlas_structure_id)
+                }
+              }}
+              style={{
+                padding: '6px 12px',
+                backgroundColor: '#dc2626',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontSize: '0.875rem',
+                fontWeight: '500'
+              }}
+            >
+              Reconnect
+            </button>
+          )}
         </div>
       )}
       {calculationResult && (
@@ -1515,9 +2081,12 @@ const RuleEditor: React.FC = () => {
         </div>
       </div>
 
-      {/* Grid-Hero Layout - 100% Width */}
-      <div className="grid-hero-container">
-        <div className="ag-theme-alpine grid-hero" style={{ height: 'calc(100vh - 300px)', width: '100%' }}>
+      {/* Unified AG-Grid Tree (like Tab 2) */}
+      <div className="grid-hero-container" style={{ width: '100%' }}>
+        <div className="ag-theme-alpine grid-hero" style={{ 
+          height: 'calc(100vh - 300px)', 
+          width: '100%'
+        }}>
           <AgGridReact
             ref={gridRef}
             rowData={searchQuery ? filteredRowData : rowData}
@@ -1527,6 +2096,7 @@ const RuleEditor: React.FC = () => {
             onGridReady={onGridReady}
             onSelectionChanged={onSelectionChanged}
             onRowGroupOpened={(params) => {
+              // Tree Unification: Sync expansion to shared state (matches DiscoveryScreen)
               if (params.node && params.node.data) {
                 const nodeId = params.node.data.node_id
                 setExpandedNodes(prev => {
@@ -1537,6 +2107,7 @@ const RuleEditor: React.FC = () => {
               }
             }}
             onRowGroupClosed={(params) => {
+              // Tree Unification: Sync expansion to shared state (matches DiscoveryScreen)
               if (params.node && params.node.data) {
                 const nodeId = params.node.data.node_id
                 setExpandedNodes(prev => {
@@ -1549,13 +2120,15 @@ const RuleEditor: React.FC = () => {
             rowSelection="multiple"
             treeData={true}
             getDataPath={(data) => data.path || []}
-            groupDefaultExpanded={1}
+            groupDefaultExpanded={-1}  // Fully expanded on load (Power BI-like)
             animateRows={true}
             loading={loading}
             getRowStyle={getRowStyle}
             getRowClass={getRowClass}
             suppressRowClickSelection={false}
             enableRangeSelection={false}
+            suppressHorizontalScroll={false}
+            suppressVerticalScroll={false}
           />
         </div>
       </div>
@@ -2013,5 +2586,6 @@ const RuleEditor: React.FC = () => {
   )
 }
 
-export default RuleEditor
+// Optimize tab switching: Use React.memo to prevent unnecessary re-renders
+export default React.memo(RuleEditor)
 

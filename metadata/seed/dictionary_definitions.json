@@ -1,0 +1,101 @@
+{
+  "definitions": [
+    {
+      "category": "BOOK",
+      "tech_id": "EQ_CORE_NYC",
+      "display_name": "Core Equities - New York"
+    },
+    {
+      "category": "BOOK",
+      "tech_id": "EQ_CORE_LDN",
+      "display_name": "Core Equities - London"
+    },
+    {
+      "category": "BOOK",
+      "tech_id": "FX_SPOT_NYC",
+      "display_name": "FX Spot Trading - New York"
+    },
+    {
+      "category": "BOOK",
+      "tech_id": "FX_SPOT_LDN",
+      "display_name": "FX Spot Trading - London"
+    },
+    {
+      "category": "BOOK",
+      "tech_id": "FI_GOVT_US",
+      "display_name": "Fixed Income - Government US"
+    },
+    {
+      "category": "STRATEGY",
+      "tech_id": "STRAT_MARKET_MAKING",
+      "display_name": "Market Making Strategy"
+    },
+    {
+      "category": "STRATEGY",
+      "tech_id": "STRAT_ARBITRAGE",
+      "display_name": "Arbitrage Strategy"
+    },
+    {
+      "category": "STRATEGY",
+      "tech_id": "STRAT_PROP_TRADING",
+      "display_name": "Proprietary Trading Strategy"
+    },
+    {
+      "category": "STRATEGY",
+      "tech_id": "STRAT_HEDGE",
+      "display_name": "Hedging Strategy"
+    },
+    {
+      "category": "PRODUCT_TYPE",
+      "tech_id": "PROD_EQUITY",
+      "display_name": "Equity Products"
+    },
+    {
+      "category": "PRODUCT_TYPE",
+      "tech_id": "PROD_FX",
+      "display_name": "Foreign Exchange Products"
+    },
+    {
+      "category": "PRODUCT_TYPE",
+      "tech_id": "PROD_FIXED_INCOME",
+      "display_name": "Fixed Income Products"
+    },
+    {
+      "category": "PRODUCT_TYPE",
+      "tech_id": "PROD_DERIVATIVES",
+      "display_name": "Derivatives Products"
+    },
+    {
+      "category": "LEGAL_ENTITY",
+      "tech_id": "ENTITY_US_HOLDINGS",
+      "display_name": "US Holdings Inc."
+    },
+    {
+      "category": "LEGAL_ENTITY",
+      "tech_id": "ENTITY_UK_LTD",
+      "display_name": "UK Trading Limited"
+    },
+    {
+      "category": "LEGAL_ENTITY",
+      "tech_id": "ENTITY_SG_PTE",
+      "display_name": "Singapore Private Limited"
+    },
+    {
+      "category": "RISK_OFFICER",
+      "tech_id": "RO_NYC_001",
+      "display_name": "Risk Officer - New York Region"
+    },
+    {
+      "category": "RISK_OFFICER",
+      "tech_id": "RO_LDN_001",
+      "display_name": "Risk Officer - London Region"
+    },
+    {
+      "category": "RISK_OFFICER",
+      "tech_id": "RO_SG_001",
+      "display_name": "Risk Officer - Singapore Region"
+    }
+  ]
+}
+
+

@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import calculations, discovery, reports, rules, use_cases
+from app.api.routes import admin, calculations, discovery, reports, rules, runs, use_cases
 from app.engine.translator import smoke_test_gemini
 
 # Load environment variables from .env file
@@ -49,13 +49,20 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Configure CORS
+# Configure CORS - Must be added before routers
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, specify actual origins
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:5173",
+        "*"  # Allow all origins for development
+    ],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 # Include routers
@@ -66,6 +73,10 @@ app.include_router(reports.router)
 app.include_router(rules.router)
 # Phase 2: Calculations router
 app.include_router(calculations.router)
+# Phase 3: Admin router
+app.include_router(admin.router)
+# Phase 3.2: Runs router (date-anchored run selection)
+app.include_router(runs.router)
 
 
 @app.get("/")

@@ -244,12 +244,7 @@ Successfully implemented the **Waterfall Calculation Engine** and **Executive Da
 
 ---
 
-## 🔑 Configuration
-
-### Environment Variables
-- **`.env`** file updated with:
-  - `GEMINI_API_KEY=your_api_key_here` (use actual key from secure storage)
-  - `DATABASE_URL=postgresql://finance_user:finance_pass@localhost:5432/finance_insight`
+#ostgresql://finance_user:finance_pass@localhost:5432/finance_insight`
 
 ### Dependencies
 - ✅ `google-generativeai==0.3.0` installed

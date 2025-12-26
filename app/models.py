@@ -74,7 +74,7 @@ class UseCaseRun(Base):
     __tablename__ = "use_case_runs"
 
     run_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    use_case_id = Column(UUID(as_uuid=True), ForeignKey("use_cases.use_case_id"), nullable=False)
+    use_case_id = Column(UUID(as_uuid=True), ForeignKey("use_cases.use_case_id", ondelete="CASCADE"), nullable=False)
     version_tag = Column(String, nullable=False)  # e.g., "Nov_Actuals_v1"
     run_timestamp = Column(TIMESTAMP, nullable=False, server_default=func.now())
     parameters_snapshot = Column(JSONB)  # Snapshots the rules used for this run
@@ -151,7 +151,7 @@ class MetadataRule(Base):
     __tablename__ = "metadata_rules"
 
     rule_id = Column(Integer, primary_key=True, autoincrement=True)
-    use_case_id = Column(UUID(as_uuid=True), ForeignKey("use_cases.use_case_id"), nullable=False)
+    use_case_id = Column(UUID(as_uuid=True), ForeignKey("use_cases.use_case_id", ondelete="CASCADE"), nullable=False)
     node_id = Column(String(50), ForeignKey("dim_hierarchy.node_id"), nullable=False)
     predicate_json = Column(JSONB)  # JSON predicate for UI/GenAI state
     sql_where = Column(Text, nullable=True)  # SQL WHERE clause for execution (nullable for Phase 1 compatibility)
@@ -197,13 +197,15 @@ class FactPnlGold(Base):
 
 class FactCalculatedResult(Base):
     """
-    Calculated results - output from waterfall engine.
+    Calculated results (reporting_results) - output from waterfall engine.
     Each row represents a single node's calculated values for a specific run.
+    Step 4.2: Added calculation_run_id for date-anchored temporal versioning.
     """
     __tablename__ = "fact_calculated_results"
 
     result_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    run_id = Column(UUID(as_uuid=True), ForeignKey("use_case_runs.run_id"), nullable=False)
+    run_id = Column(UUID(as_uuid=True), ForeignKey("use_case_runs.run_id", ondelete="CASCADE"), nullable=True)  # Legacy, nullable for transition
+    calculation_run_id = Column(UUID(as_uuid=True), ForeignKey("calculation_runs.id", ondelete="CASCADE"), nullable=True)  # Step 4.2: New date-anchored link
     node_id = Column(String(50), ForeignKey("dim_hierarchy.node_id"), nullable=False)
     measure_vector = Column(JSONB, nullable=False)  # {daily: X, mtd: Y, ytd: Z, pytd: W}
     plug_vector = Column(JSONB)  # {daily: X, mtd: Y, ytd: Z, pytd: W} - reconciliation plugs
@@ -212,11 +214,12 @@ class FactCalculatedResult(Base):
     created_at = Column(TIMESTAMP, nullable=False, server_default=func.now())
 
     # Relationships
-    run = relationship("UseCaseRun", back_populates="results")
+    run = relationship("UseCaseRun", back_populates="results")  # Legacy relationship
+    calculation_run = relationship("CalculationRun", back_populates="results")  # Step 4.2: New relationship
     node = relationship("DimHierarchy", back_populates="results")
 
     def __repr__(self):
-        return f"<FactCalculatedResult(id={self.result_id}, run={self.run_id}, node='{self.node_id}', override={self.is_override})>"
+        return f"<FactCalculatedResult(id={self.result_id}, calc_run={self.calculation_run_id}, node='{self.node_id}', override={self.is_override})>"
 
 
 class ReportRegistration(Base):
@@ -239,3 +242,76 @@ class ReportRegistration(Base):
 
     def __repr__(self):
         return f"<ReportRegistration(id={self.report_id}, name='{self.report_name}')>"
+
+
+class DimDictionary(Base):
+    """
+    Dictionary dimension - portable metadata for categories like BOOK, STRATEGY, PRODUCT_TYPE, etc.
+    Enables environment portability by storing tech_id to display_name mappings.
+    """
+    __tablename__ = "dim_dictionary"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    category = Column(String(50), nullable=False)  # BOOK, STRATEGY, PRODUCT_TYPE, LEGAL_ENTITY, RISK_OFFICER
+    tech_id = Column(String(100), nullable=False)  # Technical identifier (e.g., "EQ_CORE_NYC")
+    display_name = Column(String(200), nullable=False)  # Human-readable name
+    created_at = Column(TIMESTAMP, nullable=False, server_default=func.now())
+
+    # Unique constraint: one tech_id per category
+    __table_args__ = (
+        UniqueConstraint("category", "tech_id", name="uq_category_tech_id"),
+    )
+
+    def __repr__(self):
+        return f"<DimDictionary(category='{self.category}', tech_id='{self.tech_id}', display='{self.display_name}')>"
+
+
+class FactPnlEntries(Base):
+    """
+    Consolidated P&L fact table - merges PNL_Data and PNL_Prior_Data.
+    Uses scenario field to distinguish 'ACTUAL' vs 'PRIOR' data.
+    Step 4.2: Added explicit columns for daily, wtd, and ytd measures.
+    """
+    __tablename__ = "fact_pnl_entries"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    use_case_id = Column(UUID(as_uuid=True), ForeignKey("use_cases.use_case_id", ondelete="CASCADE"), nullable=False)
+    pnl_date = Column(Date, nullable=False)
+    category_code = Column(String(50), nullable=False)  # Maps to dim_dictionary.tech_id or hierarchy node
+    amount = Column(Numeric(18, 2), nullable=False)  # Legacy column, kept for backward compatibility
+    daily_amount = Column(Numeric(18, 2), nullable=False)  # Step 4.2: Explicit daily measure
+    wtd_amount = Column(Numeric(18, 2), nullable=False)  # Step 4.2: Week-to-date measure
+    ytd_amount = Column(Numeric(18, 2), nullable=False)  # Step 4.2: Year-to-date measure
+    scenario = Column(String(20), nullable=False)  # 'ACTUAL' or 'PRIOR'
+    audit_metadata = Column(JSONB, nullable=True)  # Additional metadata: source, timestamp, etc.
+
+    # Relationships
+    use_case = relationship("UseCase")
+
+    def __repr__(self):
+        return f"<FactPnlEntries(id={self.id}, use_case={self.use_case_id}, date={self.pnl_date}, scenario={self.scenario})>"
+
+
+class CalculationRun(Base):
+    """
+    Calculation Runs (Header) - Temporal versioning pattern for date-anchored reporting.
+    Each run represents a snapshot execution for a specific PNL_DATE.
+    Supports "Trial Analysis" where users can compare different rule versions for the same date.
+    """
+    __tablename__ = "calculation_runs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    pnl_date = Column(Date, nullable=False)  # COB date anchor
+    use_case_id = Column(UUID(as_uuid=True), ForeignKey("use_cases.use_case_id", ondelete="CASCADE"), nullable=False)
+    run_name = Column(String(200), nullable=False)  # e.g., "Initial Run", "Adjusted v2"
+    executed_at = Column(TIMESTAMP, nullable=False, server_default=func.now())
+    status = Column(String(20), nullable=False, default="IN_PROGRESS")  # IN_PROGRESS, COMPLETED, FAILED
+    triggered_by = Column(String(100), nullable=False)  # user_id
+    calculation_duration_ms = Column(Integer, nullable=True)  # Performance tracking
+
+    # Relationships
+    use_case = relationship("UseCase")
+    results = relationship("FactCalculatedResult", back_populates="calculation_run", cascade="all, delete-orphan")
+
+    def __repr__(self):
+        return f"<CalculationRun(id={self.id}, date={self.pnl_date}, name='{self.run_name}', status={self.status})>"

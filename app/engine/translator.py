@@ -72,6 +72,16 @@ Fields: {', '.join(ALLOWED_FIELDS)}
 Operators: {', '.join(GENAI_SUPPORTED_OPERATORS)}
 JSON only, no markdown."""
 
+# Step 4.3: Comparison mode system instruction
+COMPARISON_SYSTEM_INSTRUCTION = f"""You are a financial data expert analyzing P&L comparisons between two calculation runs.
+The user is currently comparing Run A (Baseline) and Run B (Target). Focus your analysis on the deltas between these two versions.
+When translating natural language filters, consider the context of comparing these runs.
+
+Translate to JSON: {{'conditions': [{{'field': str, 'operator': str, 'value': any}}], 'conjunction': 'AND'}}
+Fields: {', '.join(ALLOWED_FIELDS)}
+Operators: {', '.join(GENAI_SUPPORTED_OPERATORS)}
+JSON only, no markdown."""
+
 
 # Custom exception for quota errors
 class QuotaExceededError(Exception):
@@ -205,7 +215,8 @@ Translate this natural language filter to JSON predicate:
 @retry_on_quota
 def translate_natural_language_to_json(
     logic_en: str,
-    fact_schema: Optional[Dict[str, Any]] = None
+    fact_schema: Optional[Dict[str, Any]] = None,
+    comparison_context: Optional[Dict[str, str]] = None
 ) -> Tuple[Dict[str, Any], List[str]]:
     """
     Stage 1: Translate natural language to structured JSON predicate using Gemini Pro.
@@ -237,8 +248,16 @@ def translate_natural_language_to_json(
         # Initialize Gemini model
         model = initialize_gemini()
         
+        # Step 4.3: Use comparison context if provided
+        system_instruction = SYSTEM_INSTRUCTION
+        if comparison_context and comparison_context.get('baseline_run_id') and comparison_context.get('target_run_id'):
+            system_instruction = COMPARISON_SYSTEM_INSTRUCTION
+            comparison_note = f"\n\nContext: Comparing Baseline Run ({comparison_context.get('baseline_run_id')}) vs Target Run ({comparison_context.get('target_run_id')})."
+        else:
+            comparison_note = ""
+        
         # Build full prompt with system instruction (since system_instruction param not available in 0.3.0)
-        full_prompt = f"""{SYSTEM_INSTRUCTION}
+        full_prompt = f"""{system_instruction}{comparison_note}
 
 Translate this natural language filter to JSON predicate:
 
@@ -362,7 +381,8 @@ def validate_json_predicate(
 @retry_on_quota
 def translate_rule(
     logic_en: str,
-    use_cache: bool = True
+    use_cache: bool = True,
+    comparison_context: Optional[Dict[str, str]] = None
 ) -> Tuple[Optional[Dict[str, Any]], Optional[str], List[str], bool]:
     """
     Main translation function: Natural Language → JSON → Validate → SQL.
@@ -395,7 +415,7 @@ def translate_rule(
     
     # Stage 1: Natural Language → JSON Predicate (Gemini)
     try:
-        predicate_json, translation_errors = translate_natural_language_to_json(logic_en)
+        predicate_json, translation_errors = translate_natural_language_to_json(logic_en, None, comparison_context)
         if translation_errors:
             errors.extend(translation_errors)
             return None, None, errors, False
