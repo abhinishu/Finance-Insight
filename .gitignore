@@ -29,6 +29,7 @@ ENV/
 .env
 .env.local
 .env.*.local
+# Note: .env.example is NOT ignored (should be committed to Git)
 
 # IDE
 .vscode/
