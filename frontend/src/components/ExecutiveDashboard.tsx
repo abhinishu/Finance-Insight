@@ -1,8 +1,16 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react'
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { AgGridReact } from 'ag-grid-react'
 import { ColDef, GridApi, ColumnApi, ICellRendererParams } from 'ag-grid-community'
+import 'ag-grid-enterprise' // Required for treeData feature
 import axios from 'axios'
 import { useReportingContext } from '../contexts/ReportingContext'
+import { calculateRuleAttribution } from '../utils/pnlAttribution'
+import RuleImpactTable from './RuleImpactTable'
+import PnlWaterfallChart from './PnlWaterfallChart'
+import DrillDownModal from './DrillDownModal'
+import RuleDrillDownModal from './RuleDrillDownModal'
+import PortalTooltip from './PortalTooltip'
+import SmartTooltip from './SmartTooltip'
 import 'ag-grid-community/styles/ag-grid.css'
 import 'ag-grid-community/styles/ag-theme-alpine.css'
 import './ExecutiveDashboard.css'
@@ -56,6 +64,8 @@ interface ResultsResponse {
   hierarchy: ResultsNode[]
 }
 
+// Business Rule Cell Renderer (using PortalTooltip for rich tooltips)
+
 // Custom Cell Renderer Component for Business Rule
 const BusinessRuleCellRenderer: React.FC<ICellRendererParams> = (params) => {
   if (!params.data?.rule?.logic_en) {
@@ -65,14 +75,41 @@ const BusinessRuleCellRenderer: React.FC<ICellRendererParams> = (params) => {
   const logicText = params.data.rule.logic_en || 'Business Rule Applied'
   const displayText = logicText.length > 60 ? logicText.substring(0, 57) + '...' : logicText
   
+  // Calculate impact (adjusted - original)
+  const original = parseFloat(params.data?.natural_value?.daily || params.data?.daily_pnl || 0)
+  const adjusted = parseFloat(params.data?.adjusted_value?.daily || params.data?.adjusted_daily || 0)
+  const impact = adjusted - original
+  
+  const tooltipContent = (
+    <div>
+      <div style={{ fontWeight: '700', marginBottom: '0.25rem', color: '#fbbf24' }}>
+        {logicText}
+      </div>
+      {params.data.rule.sql_where && (
+        <div style={{ color: '#d1d5db', marginBottom: '0.25rem', fontSize: '0.7rem' }}>
+          Logic: {params.data.rule.sql_where}
+        </div>
+      )}
+      <div style={{ 
+        color: impact >= 0 ? '#10b981' : '#ef4444', 
+        fontFamily: 'monospace', 
+        fontWeight: '600',
+        fontSize: '0.875rem'
+      }}>
+        Impact: ${impact >= 0 ? '+' : ''}${impact.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+      </div>
+    </div>
+  )
+  
   return (
-    <span 
-      className="rule-badge" 
-      title={logicText}
-      style={{ cursor: 'help' }}
-    >
-      {displayText}
-    </span>
+    <SmartTooltip content={tooltipContent}>
+      <span 
+        className="rule-badge" 
+        style={{ cursor: 'help' }}
+      >
+        {displayText}
+      </span>
+    </SmartTooltip>
   )
 }
 
@@ -102,6 +139,7 @@ const ExecutiveDashboard: React.FC = () => {
 
   // Data
   const [rowData, setRowData] = useState<any[]>([])
+  const [filteredRowData, setFilteredRowData] = useState<any[]>([])
   const [gridApi, setGridApi] = useState<GridApi | null>(null)
   const [loading, setLoading] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
@@ -109,6 +147,15 @@ const ExecutiveDashboard: React.FC = () => {
   // Side Drawer
   const [drawerOpen, setDrawerOpen] = useState<boolean>(false)
   const [selectedRule, setSelectedRule] = useState<ResultsNode | null>(null)
+  
+  // Drill-Down Modal for Waterfall Chart
+  const [selectedRuleName, setSelectedRuleName] = useState<string | null>(null)
+  
+  // Forensic Drill-Down Modal (Rule Evidence Locker)
+  const [selectedDrillRule, setSelectedDrillRule] = useState<string | null>(null)
+  
+  // Scope Node for Dynamic Waterfall Chart
+  const [scopeNode, setScopeNode] = useState<any>(null)
 
   // View Mode
   const [viewMode, setViewMode] = useState<'standard' | 'delta' | 'drilldown'>('standard')
@@ -289,6 +336,39 @@ const ExecutiveDashboard: React.FC = () => {
       })
       setRowData(flatData)
       
+      // Set default expansion for nodes with depth < 4
+      if (gridApi && flatData.length > 0) {
+        setTimeout(() => {
+          if (gridApi && !gridApi.isDestroyed && typeof gridApi.forEachNode === 'function') {
+            try {
+              gridApi.forEachNode((node: any) => {
+                if (node && node.data && (node.data.depth || 0) < 4) {
+                  if (typeof node.setExpanded === 'function') {
+                    node.setExpanded(true)
+                  } else if (typeof node.expanded !== 'undefined') {
+                    node.expanded = true
+                  }
+                }
+              })
+            } catch (error) {
+              console.warn('[EXECUTIVE DASHBOARD] Grid expansion error (non-critical):', error)
+            }
+          }
+        }, 100)
+      }
+      
+      // Set default scopeNode to Root Node on initial load
+      if (flatData.length > 0 && !scopeNode) {
+        const rootNode = flatData.find((r: any) => 
+          r.node_name === 'Global Trading P&L' || 
+          r.node_name === 'ROOT' ||
+          r.depth === 0 ||
+          !r.parent_node_id
+        ) || flatData[0]
+        setScopeNode(rootNode)
+        console.log('[EXECUTIVE DASHBOARD] Default scopeNode set to:', rootNode?.node_name)
+      }
+      
       // Check if calculation is outdated (compare with rules last modified)
       await checkCalculationFreshness(useCaseId)
     } catch (err: any) {
@@ -448,6 +528,170 @@ const ExecutiveDashboard: React.FC = () => {
     
     return result
   }
+
+  // Calculate rule attribution from row data (memoized for performance)
+  // Uses "Anchor & Scale" logic: Selected Scope Node is Source of Truth
+  const attributionResult = useMemo(() => {
+    if (!rowData || rowData.length === 0) {
+      console.log('[EXECUTIVE DASHBOARD] No rowData for attribution calculation')
+      return { totalOriginal: 0, totalAdjusted: 0, breakdown: [] }
+    }
+    
+    // Use selected scope node, or fallback to root node, or fallback to first row, or zero-safe object
+    const activeNode = scopeNode || 
+      rowData.find((r: any) => 
+        r.node_name === 'Global Trading P&L' || 
+        r.node_name === 'ROOT' ||
+        r.depth === 0 ||
+        !r.parent_node_id
+      ) || 
+      rowData[0] || 
+      { daily_pnl: 0, adjusted_daily: 0, node_name: 'Unknown', natural_value: { daily: 0 }, adjusted_value: { daily: 0 } }
+    
+    console.log('[EXECUTIVE DASHBOARD] Active Scope Node:', {
+      node_name: activeNode?.node_name,
+      node_id: activeNode?.node_id,
+      depth: activeNode?.depth
+    })
+    
+    // Extract active node values using robust parsing
+    const parseVal = (val: any): number => {
+      if (typeof val === 'number') return val
+      if (!val) return 0
+      if (typeof val === 'object' && val !== null) {
+        const nested = val.daily || val.mtd || val.ytd || val.value || val.amount
+        if (nested !== undefined) return parseVal(nested)
+        return 0
+      }
+      const clean = String(val)
+        .replace(/,/g, '')
+        .replace(/\$/g, '')
+        .replace(/\(/g, '-')
+        .replace(/\)/g, '')
+        .trim()
+      const num = parseFloat(clean)
+      return isNaN(num) ? 0 : num
+    }
+    
+    const activeOriginal = parseVal(
+      activeNode?.natural_value?.daily ||
+      activeNode?.natural_value ||
+      activeNode?.daily_pnl ||
+      activeNode?.original_daily ||
+      0
+    )
+    
+    const activeAdjusted = parseVal(
+      activeNode?.adjusted_value?.daily ||
+      activeNode?.adjusted_value ||
+      activeNode?.adjusted_daily ||
+      activeNode?.adjusted_pnl ||
+      0
+    )
+    
+    console.log('[EXECUTIVE DASHBOARD] Active Node Values (Source of Truth):', {
+      nodeName: activeNode?.node_name,
+      original: activeOriginal.toLocaleString(),
+      adjusted: activeAdjusted.toLocaleString(),
+      delta: (activeAdjusted - activeOriginal).toLocaleString()
+    })
+    
+    console.log('[EXECUTIVE DASHBOARD] Calculating attribution from', rowData.length, 'rows')
+    const result = calculateRuleAttribution(rowData, activeOriginal, activeAdjusted, activeNode?.node_name)
+    console.log('[EXECUTIVE DASHBOARD] Attribution result:', {
+      totalOriginal: result.totalOriginal,
+      totalAdjusted: result.totalAdjusted,
+      breakdownCount: result.breakdown.length,
+      breakdown: result.breakdown
+    })
+    return result
+  }, [rowData, scopeNode])
+  
+  // Extract breakdown for components that expect array format
+  const attributionData = attributionResult.breakdown
+  
+  // Calculate original and adjusted P&L totals (for waterfall chart)
+  // Always use Scope Node values (Source of Truth from attribution calculation)
+  const { originalPnl, adjustedPnl } = useMemo(() => {
+    // Use totals from attribution calculation (Scope Node is Source of Truth)
+    console.log('[EXECUTIVE DASHBOARD] Using P&L totals from Scope Node (Source of Truth):', {
+      originalPnl: attributionResult.totalOriginal,
+      adjustedPnl: attributionResult.totalAdjusted,
+      delta: attributionResult.totalAdjusted - attributionResult.totalOriginal
+    })
+    return {
+      originalPnl: attributionResult.totalOriginal,
+      adjustedPnl: attributionResult.totalAdjusted
+    }
+  }, [attributionResult])
+  
+  // Create list of key nodes for Analysis Scope dropdown
+  // Filter to show only parent nodes (Key Nodes) to keep the list clean
+  const keyNodes = useMemo(() => {
+    if (!rowData || rowData.length === 0) return []
+    
+    // Key parent nodes (non-leaf nodes with children)
+    const parentNodes = rowData.filter((row: any) => {
+      const hasChildren = Array.isArray(row.children) && row.children.length > 0
+      const isExplicitParent = row.is_leaf === false || row.depth !== undefined
+      const nodeName = row.node_name || ''
+      
+      // Include known parent nodes or nodes with children
+      const isKeyNode = [
+        "Global Trading P&L",
+        "Americas",
+        "Cash Equities",
+        "High Touch Trading",
+        "EMEA",
+        "APAC",
+        "UK"
+      ].includes(nodeName) || (hasChildren && isExplicitParent)
+      
+      return isKeyNode
+    })
+    
+    // If we have less than 50 total nodes, show all unique nodes
+    // Otherwise, show only key parent nodes
+    if (rowData.length < 50) {
+      const uniqueNodes = Array.from(new Map(rowData.map((r: any) => [r.node_name, r])).values())
+      return uniqueNodes.sort((a: any, b: any) => {
+        // Sort by depth first, then by name
+        const depthA = a.depth || 0
+        const depthB = b.depth || 0
+        if (depthA !== depthB) return depthA - depthB
+        return (a.node_name || '').localeCompare(b.node_name || '')
+      })
+    }
+    
+    return parentNodes.sort((a: any, b: any) => {
+      const depthA = a.depth || 0
+      const depthB = b.depth || 0
+      if (depthA !== depthB) return depthA - depthB
+      return (a.node_name || '').localeCompare(b.node_name || '')
+    })
+  }, [rowData])
+
+  // Delta Mode Filtering: Show only rows with changes or parent nodes
+  const displayRowData = useMemo(() => {
+    if (viewMode !== 'delta') {
+      return rowData
+    }
+    
+    // Filter to show only rows where abs(adjusted - original) > 0.01 OR is_parent = true
+    return rowData.filter((row: any) => {
+      // Always show parent nodes
+      if (row.is_parent === true) {
+        return true
+      }
+      
+      // Calculate delta
+      const original = parseFloat(row.natural_value?.daily || row.daily_pnl || 0)
+      const adjusted = parseFloat(row.adjusted_value?.daily || row.adjusted_daily || 0)
+      const delta = Math.abs(adjusted - original)
+      
+      return delta > 0.01
+    })
+  }, [rowData, viewMode])
 
   // AG-Grid Column Definitions (dynamic based on view mode and comparison mode)
   const getColumnDefs = (): ColDef[] => {
@@ -810,14 +1054,164 @@ const ExecutiveDashboard: React.FC = () => {
 
   const onGridReady = (params: { api: GridApi; columnApi: ColumnApi }) => {
     setGridApi(params.api)
+    // Set default expansion for nodes with depth < 4
+    setTimeout(() => {
+      if (params.api && !params.api.isDestroyed && typeof params.api.forEachNode === 'function') {
+        try {
+          params.api.forEachNode((node: any) => {
+            if (node && node.data && (node.data.depth || 0) < 4) {
+              if (typeof node.setExpanded === 'function') {
+                node.setExpanded(true)
+              } else if (typeof node.expanded !== 'undefined') {
+                node.expanded = true
+              }
+            }
+          })
+        } catch (error) {
+          console.warn('[EXECUTIVE DASHBOARD] Grid expansion error (non-critical):', error)
+        }
+      }
+    }, 100)
   }
 
-  // Row style for conditional formatting (amber highlight for plugs)
-  const getRowStyle = (params: any) => {
-    if (params.data?.hasPlug) {
-      return { backgroundColor: '#fef3c7' } // Amber background
+  // Handle row click to update scope node
+  const onRowClicked = (params: any) => {
+    if (params.data) {
+      setScopeNode(params.data)
+      console.log('[EXECUTIVE DASHBOARD] Scope node updated to:', params.data?.node_name)
     }
-    return {}
+  }
+
+  // Row style for conditional formatting (amber highlight for plugs, blue for selected scope)
+  // Structural Column Cell Renderer with Guide Rails and Expand Toggle
+  const StructuralHierarchyCellRenderer: React.FC<ICellRendererParams> = (params) => {
+    const depth = params.data?.depth || 0
+    const nodeName = params.value || params.data?.node_name || ''
+    const hasChildren = params.data?.children && params.data.children.length > 0
+    // Safely check if node is expanded (can be property or method)
+    const isExpanded = params.node 
+      ? (typeof params.node.isExpanded === 'function' 
+          ? params.node.isExpanded() 
+          : params.node.expanded === true)
+      : false
+    
+    // Determine node type for icon
+    const getNodeIcon = () => {
+      if (depth === 0) {
+        return '🌐' // Globe for Root
+      } else if (params.data?.region || nodeName.includes('Americas') || nodeName.includes('EMEA') || nodeName.includes('APAC')) {
+        return '📍' // MapPin for Region
+      } else if (params.data?.book || nodeName.includes('Book')) {
+        return '💼' // Briefcase for Book
+      } else if (params.data?.cost_center || nodeName.includes('Cost Center') || nodeName.includes('Trade')) {
+        return '#' // Hash for Cost Center
+      }
+      return ''
+    }
+    
+    const toggleExpand = (e: React.MouseEvent) => {
+      e.stopPropagation()
+      if (params.node) {
+        if (typeof params.node.setExpanded === 'function') {
+          params.node.setExpanded(!isExpanded)
+        } else if (typeof params.node.expanded !== 'undefined') {
+          // Fallback: try to toggle expanded property directly
+          params.node.expanded = !isExpanded
+        }
+      }
+    }
+    
+    return (
+      <div style={{ 
+        display: 'flex', 
+        alignItems: 'stretch',
+        height: '100%',
+        width: '100%'
+      }}>
+        {/* The Indentation "Guide Rails" */}
+        {Array.from({ length: depth }).map((_, i) => (
+          <div
+            key={i}
+            style={{
+              flexShrink: 0,
+              width: '32px',
+              height: '100%',
+              borderRight: '1px solid #e5e7eb',
+              backgroundColor: 'rgba(249, 250, 251, 0.5)' // gray-50/50
+            }}
+          />
+        ))}
+        
+        {/* The Expand Toggle / Leaf Connector */}
+        <div
+          style={{
+            flexShrink: 0,
+            width: '32px',
+            height: '100%',
+            borderRight: '1px solid #e5e7eb',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: 'rgba(249, 250, 251, 0.5)', // gray-50/50
+            cursor: hasChildren ? 'pointer' : 'default'
+          }}
+          onClick={toggleExpand}
+        >
+          {hasChildren ? (
+            isExpanded ? (
+              <span style={{ fontSize: '14px', color: '#6b7280' }}>▼</span>
+            ) : (
+              <span style={{ fontSize: '14px', color: '#6b7280' }}>▶</span>
+            )
+          ) : (
+            <div style={{
+              width: '6px',
+              height: '6px',
+              borderRadius: '50%',
+              backgroundColor: '#d1d5db'
+            }} />
+          )}
+        </div>
+        
+        {/* The Node Cell with Icon and Name */}
+        <div style={{
+          flex: 1,
+          display: 'flex',
+          alignItems: 'center',
+          paddingLeft: '8px',
+          fontSize: '0.875rem',
+          fontWeight: 500,
+          color: '#374151'
+        }}>
+          {getNodeIcon() && <span style={{ marginRight: '6px', fontSize: '14px' }}>{getNodeIcon()}</span>}
+          <span>{nodeName}</span>
+        </div>
+      </div>
+    )
+  }
+
+  const getRowStyle = (params: any) => {
+    const baseStyle: any = {
+      height: '40px', // h-10
+      padding: 0
+    }
+    
+    // Zebra striping: even rows get subtle gray background
+    if (params.node.rowIndex % 2 === 1) {
+      baseStyle.backgroundColor = 'rgba(249, 250, 251, 0.3)' // gray-50/30
+    }
+    
+    // Highlight selected scope node with light blue background
+    if (scopeNode && params.data?.node_id === scopeNode?.node_id) {
+      baseStyle.backgroundColor = '#e0f2fe' // Light blue
+      baseStyle.borderLeft = '3px solid #0ea5e9' // Blue border
+    }
+    // Amber background for rows with plugs
+    else if (params.data?.hasPlug) {
+      baseStyle.backgroundColor = '#fef3c7' // Amber background
+    }
+    
+    return baseStyle
   }
 
   // Export Reconciliation CSV
@@ -825,32 +1219,38 @@ const ExecutiveDashboard: React.FC = () => {
     if (!gridApi) return
 
     const rowsWithPlug: any[] = []
-    gridApi.forEachNode((node) => {
-      if (node.data) {
-        const plugDaily = parseFloat(node.data.plug?.daily || 0)
-        const plugMtd = parseFloat(node.data.plug?.mtd || 0)
-        const plugYtd = parseFloat(node.data.plug?.ytd || 0)
-        
-        if (Math.abs(plugDaily) > 0.01 || Math.abs(plugMtd) > 0.01 || Math.abs(plugYtd) > 0.01) {
-          rowsWithPlug.push({
-            'Node ID': node.data.node_id,
-            'Node Name': node.data.node_name,
-            'Natural GL (Daily)': node.data.natural_value?.daily || '0',
-            'Adjusted P&L (Daily)': node.data.adjusted_value?.daily || '0',
-            'Plug (Daily)': node.data.plug?.daily || '0',
-            'Natural GL (MTD)': node.data.natural_value?.mtd || '0',
-            'Adjusted P&L (MTD)': node.data.adjusted_value?.mtd || '0',
-            'Plug (MTD)': node.data.plug?.mtd || '0',
-            'Natural GL (YTD)': node.data.natural_value?.ytd || '0',
-            'Adjusted P&L (YTD)': node.data.adjusted_value?.ytd || '0',
-            'Plug (YTD)': node.data.plug?.ytd || '0',
-            'Rule ID': node.data.rule?.rule_id || '',
-            'Rule Description': node.data.rule?.logic_en || '',
-            'SQL WHERE': node.data.rule?.sql_where || '',
-          })
-        }
+    if (gridApi && !gridApi.isDestroyed && typeof gridApi.forEachNode === 'function') {
+      try {
+        gridApi.forEachNode((node) => {
+          if (node && node.data) {
+            const plugDaily = parseFloat(node.data.plug?.daily || 0)
+            const plugMtd = parseFloat(node.data.plug?.mtd || 0)
+            const plugYtd = parseFloat(node.data.plug?.ytd || 0)
+            
+            if (Math.abs(plugDaily) > 0.01 || Math.abs(plugMtd) > 0.01 || Math.abs(plugYtd) > 0.01) {
+              rowsWithPlug.push({
+                'Node ID': node.data.node_id,
+                'Node Name': node.data.node_name,
+                'Natural GL (Daily)': node.data.natural_value?.daily || '0',
+                'Adjusted P&L (Daily)': node.data.adjusted_value?.daily || '0',
+                'Plug (Daily)': node.data.plug?.daily || '0',
+                'Natural GL (MTD)': node.data.natural_value?.mtd || '0',
+                'Adjusted P&L (MTD)': node.data.adjusted_value?.mtd || '0',
+                'Plug (MTD)': node.data.plug?.mtd || '0',
+                'Natural GL (YTD)': node.data.natural_value?.ytd || '0',
+                'Adjusted P&L (YTD)': node.data.adjusted_value?.ytd || '0',
+                'Plug (YTD)': node.data.plug?.ytd || '0',
+                'Rule ID': node.data.rule?.rule_id || '',
+                'Rule Description': node.data.rule?.logic_en || '',
+                'SQL WHERE': node.data.rule?.sql_where || '',
+              })
+            }
+          }
+        })
+      } catch (error) {
+        console.warn('[EXECUTIVE DASHBOARD] Grid forEachNode error (non-critical):', error)
       }
-    })
+    }
 
     if (rowsWithPlug.length === 0) {
       alert('No reconciliation plugs found to export.')
@@ -1054,27 +1454,157 @@ const ExecutiveDashboard: React.FC = () => {
         <div className="ag-theme-alpine" style={{ height: '100%', width: '100%' }}>
           <AgGridReact
             ref={gridRef}
-            rowData={rowData}
+            rowData={displayRowData}
             columnDefs={columnDefs}
             defaultColDef={defaultColDef}
             onGridReady={onGridReady}
+            onRowClicked={onRowClicked}
             treeData={true}
             getDataPath={(data) => data.path || []}
-            groupDefaultExpanded={1}
+            groupDefaultExpanded={-1}
             animateRows={true}
             loading={loading}
             getRowStyle={getRowStyle}
             rowSelection="single"
             suppressRowGroupHidesColumns={true}
+            suppressRowClickSelection={false}
             autoGroupColumnDef={{
               field: 'node_name',
               headerName: 'Dimension Node',
               flex: 2,
-              cellRenderer: 'agGroupCellRenderer',
+              cellRenderer: StructuralHierarchyCellRenderer,
+              cellStyle: {
+                padding: 0,
+                height: '40px'
+              }
             }}
           />
         </div>
       </div>
+
+      {/* Rule Attribution Analysis Table and Waterfall Chart */}
+      {rowData.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', marginTop: '2rem' }}>
+          <h3 style={{ fontSize: '1.25rem', fontWeight: '600', color: '#1f2937', marginBottom: '0.5rem' }}>
+            Adjustment Attribution Analysis
+          </h3>
+          
+          {/* Debug info (can be removed later) */}
+          {process.env.NODE_ENV === 'development' && (
+            <div style={{ padding: '0.5rem', backgroundColor: '#f3f4f6', borderRadius: '4px', fontSize: '0.875rem', color: '#6b7280' }}>
+              Debug: {rowData.length} rows, {attributionData.length} attribution items, Original: ${originalPnl.toLocaleString()}, Adjusted: ${adjustedPnl.toLocaleString()}
+            </div>
+          )}
+          
+          {/* Analysis Scope Dropdown Control */}
+          {attributionData.length > 0 && originalPnl !== 0 && keyNodes.length > 0 && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '1rem',
+              padding: '0.75rem 1rem',
+              backgroundColor: '#f9fafb',
+              border: '1px solid #e5e7eb',
+              borderRadius: '8px',
+              marginBottom: '0.5rem'
+            }}>
+              <label style={{ 
+                fontWeight: '600', 
+                color: '#374151',
+                fontSize: '0.875rem',
+                whiteSpace: 'nowrap'
+              }}>
+                Analysis Scope:
+              </label>
+              <select
+                style={{
+                  border: '1px solid #d1d5db',
+                  padding: '0.5rem 0.75rem',
+                  borderRadius: '6px',
+                  width: '300px',
+                  fontSize: '0.875rem',
+                  color: '#1f2937',
+                  backgroundColor: 'white',
+                  cursor: 'pointer'
+                }}
+                value={scopeNode?.node_name || ""}
+                onChange={(e) => {
+                  const node = rowData.find((n: any) => n.node_name === e.target.value)
+                  if (node) {
+                    setScopeNode(node)
+                    console.log('[EXECUTIVE DASHBOARD] Scope changed via dropdown to:', node.node_name)
+                    
+                    // Scroll to the selected row in the grid if possible
+                    if (gridApi) {
+                      gridApi.forEachNode((rowNode: any) => {
+                        if (rowNode.data?.node_id === node.node_id) {
+                          gridApi.ensureNodeVisible(rowNode, 'middle')
+                        }
+                      })
+                    }
+                  }
+                }}
+              >
+                <option value="">-- Select Scope --</option>
+                {keyNodes.map((node: any) => {
+                  const depth = node.depth || 0
+                  const indent = '  '.repeat(depth) // Simple indentation for hierarchy
+                  return (
+                    <option key={node.node_id || node.node_name} value={node.node_name}>
+                      {indent}{node.node_name}
+                    </option>
+                  )
+                })}
+              </select>
+              <span style={{ 
+                fontSize: '0.75rem', 
+                color: '#6b7280',
+                fontStyle: 'italic'
+              }}>
+                Select a hierarchy level to re-anchor the Waterfall Bridge.
+              </span>
+            </div>
+          )}
+          
+          {/* Waterfall Chart */}
+          {attributionData.length > 0 && originalPnl !== 0 && (
+            <PnlWaterfallChart
+              attributionData={attributionData}
+              originalPnl={originalPnl}
+              adjustedPnl={adjustedPnl}
+              rootNodeName={scopeNode?.node_name || 
+                rowData.find((r: any) => 
+                  r.node_name === 'Global Trading P&L' || 
+                  r.node_name === 'ROOT' ||
+                  r.depth === 0 ||
+                  !r.parent_node_id
+                )?.node_name || 'Global Trading P&L'}
+              onBarClick={(ruleName) => {
+                setSelectedDrillRule(ruleName)
+                console.log('[EXECUTIVE DASHBOARD] Opening forensic drill-down for rule:', ruleName)
+              }}
+            />
+          )}
+          
+          {/* Impact Table */}
+          {attributionData.length > 0 ? (
+            <RuleImpactTable attributionData={attributionData} />
+          ) : (
+            <div style={{ 
+              padding: '2rem', 
+              backgroundColor: '#f9fafb', 
+              borderRadius: '8px', 
+              textAlign: 'center',
+              color: '#6b7280'
+            }}>
+              <p style={{ margin: 0 }}>No rule attribution data available.</p>
+              <p style={{ margin: '0.5rem 0 0 0', fontSize: '0.875rem' }}>
+                Attribution is calculated from leaf nodes with rule impacts. Run a calculation to see attribution data.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Side Drawer for Rule Details */}
       {drawerOpen && selectedRule && (
@@ -1188,6 +1718,25 @@ const ExecutiveDashboard: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Drill-Down Modal for Waterfall Chart */}
+      {selectedRuleName && (
+        <DrillDownModal
+          ruleName={selectedRuleName}
+          rows={rowData}
+          onClose={() => setSelectedRuleName(null)}
+        />
+      )}
+
+      {/* Forensic Drill-Down Modal (Rule Evidence Locker) */}
+      {selectedDrillRule && (
+        <RuleDrillDownModal
+          isOpen={!!selectedDrillRule}
+          onClose={() => setSelectedDrillRule(null)}
+          ruleName={selectedDrillRule}
+          allRows={rowData}
+        />
       )}
     </div>
   )

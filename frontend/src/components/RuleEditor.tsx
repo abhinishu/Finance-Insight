@@ -3,9 +3,103 @@ import { AgGridReact } from 'ag-grid-react'
 import { ColDef, GridApi, ColumnApi, ICellRendererParams } from 'ag-grid-community'
 import axios from 'axios'
 import { useReportingContext } from '../contexts/ReportingContext'
+import SmartTooltip from './SmartTooltip'
 import 'ag-grid-community/styles/ag-grid.css'
 import 'ag-grid-community/styles/ag-theme-alpine.css'
 import './RuleEditor.css'
+
+// Rich Tooltip Component for Business Rule Badge (shared with ExecutiveDashboard)
+const RichTooltip: React.FC<{ 
+  ruleName: string
+  ruleLogic: string | null
+  impact: number
+  children: React.ReactNode
+}> = ({ ruleName, ruleLogic, impact, children }) => {
+  const [showTooltip, setShowTooltip] = React.useState(false)
+  const [tooltipPosition, setTooltipPosition] = React.useState({ x: 0, y: 0 })
+  const tooltipRef = React.useRef<HTMLDivElement>(null)
+  
+  const formatCurrency = (value: number): string => {
+    const isNegative = value < 0
+    const absValue = Math.abs(value)
+    const formatted = new Intl.NumberFormat('en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(absValue)
+    return isNegative ? `(${formatted})` : formatted
+  }
+  
+  const handleMouseEnter = (e: React.MouseEvent) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    setTooltipPosition({ x: rect.left, y: rect.top })
+    setShowTooltip(true)
+  }
+  
+  const handleMouseLeave = () => {
+    setShowTooltip(false)
+  }
+  
+  React.useEffect(() => {
+    if (showTooltip && tooltipRef.current) {
+      const tooltip = tooltipRef.current
+      const rect = tooltip.getBoundingClientRect()
+      const viewportWidth = window.innerWidth
+      const viewportHeight = window.innerHeight
+      
+      // Adjust position if tooltip goes off screen
+      let x = tooltipPosition.x
+      let y = tooltipPosition.y - tooltip.offsetHeight - 8
+      
+      if (x + rect.width > viewportWidth) {
+        x = viewportWidth - rect.width - 10
+      }
+      if (y < 0) {
+        y = tooltipPosition.y + 30
+      }
+      
+      tooltip.style.left = `${x}px`
+      tooltip.style.top = `${y}px`
+    }
+  }, [showTooltip, tooltipPosition])
+  
+  return (
+    <div
+      style={{ position: 'relative', display: 'inline-block' }}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+    >
+      {children}
+      {showTooltip && (
+        <div
+          ref={tooltipRef}
+          style={{
+            position: 'fixed',
+            zIndex: 10000,
+            backgroundColor: '#1f2937',
+            color: 'white',
+            padding: '0.75rem',
+            borderRadius: '6px',
+            fontSize: '0.75rem',
+            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+            pointerEvents: 'none',
+            maxWidth: '300px',
+            lineHeight: '1.5'
+          }}
+        >
+          <div style={{ fontWeight: '700', marginBottom: '0.25rem', color: '#fbbf24' }}>
+            {ruleName}
+          </div>
+          <div style={{ color: '#d1d5db', marginBottom: '0.25rem' }}>
+            Logic: {ruleLogic || 'N/A'}
+          </div>
+          <div style={{ color: impact >= 0 ? '#10b981' : '#ef4444', fontFamily: 'monospace', fontWeight: '600' }}>
+            Impact Here: ${formatCurrency(impact)}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 // Custom Cell Renderer Component for Node Name with Rule Icons (Fixed - Returns JSX)
 const NodeNameCellRenderer: React.FC<ICellRendererParams> = (params) => {
@@ -356,6 +450,16 @@ const RuleEditor: React.FC = () => {
   // Calculation
   const [calculating, setCalculating] = useState<boolean>(false)
   const [calculationResult, setCalculationResult] = useState<string | null>(null)
+  
+  // Success Modal State
+  const [successModalOpen, setSuccessModalOpen] = useState<boolean>(false)
+  const [successModalData, setSuccessModalData] = useState<{
+    useCaseName: string
+    pnlDate: string
+    rulesCount: number
+    totalPlug: string
+    calculationTime: string
+  } | null>(null)
 
   // Loading & Error States
   const [loading, setLoading] = useState<boolean>(false)
@@ -1152,7 +1256,114 @@ const RuleEditor: React.FC = () => {
   const [autocompleteOpen, setAutocompleteOpen] = useState<Map<number, boolean>>(new Map())
   const [autocompleteFilter, setAutocompleteFilter] = useState<Map<number, string>>(new Map())
 
-  // Status Pill Renderer for Business Rule column
+  // Structural Column Cell Renderer with Guide Rails and Expand Toggle (matches ExecutiveDashboard)
+  const StructuralHierarchyCellRenderer: React.FC<ICellRendererParams> = (params) => {
+    const depth = params.data?.depth || 0
+    const nodeName = params.value || params.data?.node_name || ''
+    const hasChildren = params.data?.children && params.data.children.length > 0
+    // Safely check if node is expanded (can be property or method)
+    const isExpanded = params.node 
+      ? (typeof params.node.isExpanded === 'function' 
+          ? params.node.isExpanded() 
+          : params.node.expanded === true)
+      : false
+    
+    // Determine node type for icon
+    const getNodeIcon = () => {
+      if (depth === 0) {
+        return '🌐' // Globe for Root
+      } else if (params.data?.region || nodeName.includes('Americas') || nodeName.includes('EMEA') || nodeName.includes('APAC')) {
+        return '📍' // MapPin for Region
+      } else if (params.data?.book || nodeName.includes('Book')) {
+        return '💼' // Briefcase for Book
+      } else if (params.data?.cost_center || nodeName.includes('Cost Center') || nodeName.includes('Trade')) {
+        return '#' // Hash for Cost Center
+      }
+      return ''
+    }
+    
+    const toggleExpand = (e: React.MouseEvent) => {
+      e.stopPropagation()
+      if (params.node) {
+        if (typeof params.node.setExpanded === 'function') {
+          params.node.setExpanded(!isExpanded)
+        } else if (typeof params.node.expanded !== 'undefined') {
+          // Fallback: try to toggle expanded property directly
+          params.node.expanded = !isExpanded
+        }
+      }
+    }
+    
+    return (
+      <div style={{ 
+        display: 'flex', 
+        alignItems: 'stretch',
+        height: '100%',
+        width: '100%'
+      }}>
+        {/* The Indentation "Guide Rails" */}
+        {Array.from({ length: depth }).map((_, i) => (
+          <div
+            key={i}
+            style={{
+              flexShrink: 0,
+              width: '32px',
+              height: '100%',
+              borderRight: '1px solid #e5e7eb',
+              backgroundColor: 'rgba(249, 250, 251, 0.5)' // gray-50/50
+            }}
+          />
+        ))}
+        
+        {/* The Expand Toggle / Leaf Connector */}
+        <div
+          style={{
+            flexShrink: 0,
+            width: '32px',
+            height: '100%',
+            borderRight: '1px solid #e5e7eb',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: 'rgba(249, 250, 251, 0.5)', // gray-50/50
+            cursor: hasChildren ? 'pointer' : 'default'
+          }}
+          onClick={toggleExpand}
+        >
+          {hasChildren ? (
+            isExpanded ? (
+              <span style={{ fontSize: '14px', color: '#6b7280' }}>▼</span>
+            ) : (
+              <span style={{ fontSize: '14px', color: '#6b7280' }}>▶</span>
+            )
+          ) : (
+            <div style={{
+              width: '6px',
+              height: '6px',
+              borderRadius: '50%',
+              backgroundColor: '#d1d5db'
+            }} />
+          )}
+        </div>
+        
+        {/* The Node Cell with Icon and Name */}
+        <div style={{
+          flex: 1,
+          display: 'flex',
+          alignItems: 'center',
+          paddingLeft: '8px',
+          fontSize: '0.875rem',
+          fontWeight: 500,
+          color: '#374151'
+        }}>
+          {getNodeIcon() && <span style={{ marginRight: '6px', fontSize: '14px' }}>{getNodeIcon()}</span>}
+          <span>{nodeName}</span>
+        </div>
+      </div>
+    )
+  }
+
+  // Status Pill Renderer for Business Rule column (with Rich Tooltip)
   const BusinessRuleCellRenderer: React.FC<ICellRendererParams> = (params) => {
     const rule = params.data?.rule
     if (!rule || !rule.logic_en) {
@@ -1175,11 +1386,41 @@ const RuleEditor: React.FC = () => {
       pillText = 'Manual Override'
     }
     
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-        <span className={pillClass}>{pillText}</span>
-        <span style={{ color: '#6b7280', fontSize: '0.875rem' }}>{rule.logic_en}</span>
+    // Calculate impact (adjusted - original)
+    const original = parseFloat(params.data?.daily_pnl || params.data?.natural_value?.daily || 0)
+    const adjusted = parseFloat(params.data?.adjusted_daily || params.data?.adjusted_value?.daily || 0)
+    const impact = adjusted - original
+    
+    const ruleLogic = rule.sql_where || (rule.predicate_json ? JSON.stringify(rule.predicate_json) : null)
+    
+    const tooltipContent = (
+      <div>
+        <div style={{ fontWeight: '700', marginBottom: '0.25rem', color: '#fbbf24' }}>
+          {rule.logic_en}
+        </div>
+        {ruleLogic && (
+          <div style={{ color: '#d1d5db', marginBottom: '0.25rem', fontSize: '0.7rem' }}>
+            Logic: {ruleLogic}
+          </div>
+        )}
+        <div style={{ 
+          color: impact >= 0 ? '#10b981' : '#ef4444', 
+          fontFamily: 'monospace', 
+          fontWeight: '600',
+          fontSize: '0.875rem'
+        }}>
+          Impact: ${impact >= 0 ? '+' : ''}${impact.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+        </div>
       </div>
+    )
+    
+    return (
+      <SmartTooltip content={tooltipContent}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <span className={pillClass}>{pillText}</span>
+          <span style={{ color: '#6b7280', fontSize: '0.875rem' }}>{rule.logic_en}</span>
+        </div>
+      </SmartTooltip>
     )
   }
 
@@ -1245,8 +1486,7 @@ const RuleEditor: React.FC = () => {
     },
   ]
 
-  // Auto Group Column Definition (Unified with Tab 2 - Power BI style)
-  // EXACT MATCH to DiscoveryScreen.tsx styling and configuration
+  // Auto Group Column Definition (Structural Column Design - matches ExecutiveDashboard)
   const autoGroupColumnDef: ColDef = {
     headerName: 'Hierarchy',
     field: 'node_name',
@@ -1254,13 +1494,10 @@ const RuleEditor: React.FC = () => {
     pinned: 'left',
     checkboxSelection: true,
     headerCheckboxSelection: true,
-    cellRenderer: 'agGroupCellRenderer',
-    cellRendererParams: {
-      innerRenderer: (params: ICellRendererParams) => {
-        // Pass the node_name value explicitly to the inner renderer with rule icons
-        // This matches DiscoveryScreen's nodeNameCellRenderer styling
-        return <NodeNameCellRenderer {...params} value={params.value || params.data?.node_name || ''} />
-      },
+    cellRenderer: StructuralHierarchyCellRenderer,
+    cellStyle: {
+      padding: 0,
+      height: '40px'
     },
     cellStyle: (params: any) => {
       // EXACT MATCH to DiscoveryScreen.tsx cellStyle
@@ -1293,38 +1530,30 @@ const RuleEditor: React.FC = () => {
     resizable: true,
   }
 
-  // PBI-style row styling with level-based banding and conflict detection
+  // Structural Column row styling with zebra striping and conflict detection
   const getRowStyle = (params: any) => {
-    const depth = params.data?.depth || 0
-    const hasConflict = params.data?.hasConflict || false
-    const baseStyle: any = {}
+    const baseStyle: any = {
+      height: '40px', // h-10
+      padding: 0
+    }
     
-    // Conflict row: Faded red background
+    // Zebra striping: even rows get subtle gray background
+    if (params.node.rowIndex % 2 === 1) {
+      baseStyle.backgroundColor = 'rgba(249, 250, 251, 0.3)' // gray-50/30
+    }
+    
+    // Conflict row: Faded red background (overrides zebra)
+    const hasConflict = params.data?.hasConflict || false
     if (hasConflict) {
       baseStyle.backgroundColor = '#fff5f5'
       baseStyle.borderLeft = '3px solid #dc2626'
     }
     
-    // Level-based banding (PBI style)
+    // Level-based styling (keep for root nodes)
+    const depth = params.data?.depth || 0
     if (depth === 0) {
       baseStyle.fontWeight = '700'
       baseStyle.borderBottom = '2px solid #ddd'
-      if (!hasConflict) {
-        baseStyle.backgroundColor = '#f8f9fa'
-      }
-    } else if (depth === 1) {
-      if (!hasConflict) {
-        baseStyle.backgroundColor = '#ffffff'
-      }
-      baseStyle.paddingLeft = '20px'
-      if (!hasConflict) {
-        baseStyle.borderLeft = '3px solid #007bff'
-      }
-    } else {
-      if (!hasConflict) {
-        baseStyle.backgroundColor = '#ffffff'
-      }
-      baseStyle.paddingLeft = `${20 + (depth - 1) * 20}px`
     }
     
     // Status glow for nodes with rules (only if no conflict)
@@ -1348,6 +1577,25 @@ const RuleEditor: React.FC = () => {
 
   const onGridReady = (params: { api: GridApi; columnApi: ColumnApi }) => {
     setGridApi(params.api)
+    
+    // Set default expansion for nodes with depth < 4
+    setTimeout(() => {
+      if (params.api && !params.api.isDestroyed && typeof params.api.forEachNode === 'function') {
+        try {
+          params.api.forEachNode((node: any) => {
+            if (node && node.data && (node.data.depth || 0) < 4) {
+              if (typeof node.setExpanded === 'function') {
+                node.setExpanded(true)
+              } else if (typeof node.expanded !== 'undefined') {
+                node.expanded = true
+              }
+            }
+          })
+        } catch (error) {
+          console.warn('[RULE EDITOR] Grid expansion error (non-critical):', error)
+        }
+      }
+    }, 100)
     
     // Tree Unification: Track expansion changes and sync to shared state
     params.api.addEventListener('rowGroupOpened', (event: any) => {
@@ -1894,8 +2142,25 @@ const RuleEditor: React.FC = () => {
       setAcknowledged(false) // Reset acknowledgment
       setPreFlightModalOpen(true)
     } catch (err: any) {
-      console.error('Failed to load execution plan:', err)
-      alert('Failed to load execution plan. Please try again.')
+      // Graceful error handling: Don't block the UI, just log and set empty plan
+      console.warn('Failed to load execution plan (non-fatal):', err)
+      console.warn('Error details:', err.response?.data || err.message)
+      
+      // Set empty plan instead of showing error toast
+      setExecutionPlan({
+        use_case_id: selectedUseCaseId,
+        total_rules: 0,
+        leaf_rules: 0,
+        parent_rules: 0,
+        steps: [{
+          step: 1,
+          description: "Unable to load execution plan. You can still proceed with calculation."
+        }],
+        business_summary: null
+      })
+      setRuleSequence([])
+      setAcknowledged(false)
+      setPreFlightModalOpen(true)
     }
   }
 
@@ -1933,6 +2198,48 @@ const RuleEditor: React.FC = () => {
       
       setCalculationResult(message)
       
+      // Show success alert/confirmation with detailed information
+      const rulesCount = response.data.rules_applied || 0
+      const totalPlug = response.data.total_plug?.daily || 0
+      const formattedPlug = new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD',
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      }).format(totalPlug)
+      
+      // Get use case name
+      const useCaseName = selectedUseCase?.name || 'Unknown Use Case'
+      
+      // Get PNL date from response or current date
+      const pnlDate = response.data.pnl_date || response.data.run_timestamp || new Date().toISOString().split('T')[0]
+      const formattedDate = new Date(pnlDate).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      })
+      
+      // Get run timestamp
+      const runTimestamp = response.data.run_timestamp || new Date().toISOString()
+      const formattedTimestamp = new Date(runTimestamp).toLocaleString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      })
+      
+      // Show custom success modal instead of browser alert
+      setSuccessModalData({
+        useCaseName,
+        pnlDate: formattedDate,
+        rulesCount,
+        totalPlug: formattedPlug,
+        calculationTime: formattedTimestamp
+      })
+      setSuccessModalOpen(true)
+      
       // Update last calculated timestamp
       if (response.data.run_timestamp) {
         setLastCalculated(response.data.run_timestamp)
@@ -1949,12 +2256,9 @@ const RuleEditor: React.FC = () => {
         await loadHierarchyForUseCase(selectedUseCaseId, selectedUseCase.atlas_structure_id)
       }
       
-      // UI UNIFICATION: Force page reload to discard cached zeros and fetch fresh results
-      // This is a temporary measure to ensure React state and AG-Grid refresh completely
-      console.log('Run Waterfall completed successfully. Reloading page to refresh state...')
-      setTimeout(() => {
-        window.location.reload()
-      }, 1000) // Small delay to show success message before reload
+      // NOTE: Page reload is now handled by the modal's "Close & Refresh" button
+      // This allows users to see the success modal before the page reloads
+      console.log('Run Waterfall completed successfully. Success modal should be visible.')
     } catch (err: any) {
       console.error('Failed to run calculation:', err)
       setError(err.response?.data?.detail || 'Failed to run calculation. Please try again.')
@@ -2792,6 +3096,96 @@ const RuleEditor: React.FC = () => {
                   onClick={handleConfirmCalculation}
                 >
                   Confirm & Calculate
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Success Modal */}
+      {successModalOpen && successModalData && (
+        <div className="rule-editor-modal-overlay" onClick={() => setSuccessModalOpen(false)}>
+          <div className="rule-editor-modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '600px' }}>
+            <div className="rule-editor-modal-header" style={{ background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', color: 'white' }}>
+              <h3 style={{ color: 'white', margin: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ fontSize: '1.5rem' }}>✅</span>
+                Business Rules Applied Successfully!
+              </h3>
+              <button
+                className="modal-close-btn"
+                onClick={() => setSuccessModalOpen(false)}
+                style={{ color: 'white' }}
+              >
+                ×
+              </button>
+            </div>
+            <div className="rule-editor-modal-body" style={{ padding: '2rem' }}>
+              <div style={{ 
+                display: 'grid', 
+                gridTemplateColumns: 'auto 1fr', 
+                gap: '1rem 1.5rem',
+                marginBottom: '1.5rem'
+              }}>
+                <div style={{ fontWeight: '600', color: '#374151' }}>Use Case:</div>
+                <div style={{ color: '#1f2937' }}>{successModalData.useCaseName}</div>
+                
+                <div style={{ fontWeight: '600', color: '#374151' }}>P&L Date:</div>
+                <div style={{ color: '#1f2937' }}>{successModalData.pnlDate}</div>
+                
+                <div style={{ fontWeight: '600', color: '#374151' }}>Rules Applied:</div>
+                <div style={{ color: '#1f2937' }}>{successModalData.rulesCount}</div>
+                
+                <div style={{ fontWeight: '600', color: '#374151' }}>Total Reconciliation Plug:</div>
+                <div style={{ 
+                  color: parseFloat(successModalData.totalPlug.replace(/[^0-9.-]/g, '')) >= 0 ? '#059669' : '#dc2626',
+                  fontWeight: '600',
+                  fontSize: '1.1rem'
+                }}>
+                  {successModalData.totalPlug}
+                </div>
+                
+                <div style={{ fontWeight: '600', color: '#374151' }}>Calculation Time:</div>
+                <div style={{ color: '#6b7280', fontSize: '0.9rem' }}>{successModalData.calculationTime}</div>
+              </div>
+              
+              <div style={{
+                padding: '1rem',
+                backgroundColor: '#f0fdf4',
+                border: '1px solid #86efac',
+                borderRadius: '6px',
+                color: '#166534',
+                fontSize: '0.95rem',
+                marginTop: '1rem'
+              }}>
+                The calculation has been completed and the results are now visible in the hierarchy.
+              </div>
+              
+              <div style={{ marginTop: '2rem', display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  onClick={() => {
+                    setSuccessModalOpen(false)
+                    // Reload page after a short delay to show updated results
+                    setTimeout(() => {
+                      window.location.reload()
+                    }, 500)
+                  }}
+                  style={{
+                    padding: '0.75rem 2rem',
+                    backgroundColor: '#10b981',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    fontSize: '1rem',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    transition: 'background-color 0.2s',
+                    boxShadow: '0 2px 4px rgba(16, 185, 129, 0.3)'
+                  }}
+                  onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#059669'}
+                  onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#10b981'}
+                >
+                  Close & Refresh
                 </button>
               </div>
             </div>
