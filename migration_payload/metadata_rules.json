@@ -1,0 +1,237 @@
+[
+  {
+    "rule_id": 2,
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "node_id": "AMER_CASH_NY",
+    "predicate_json": {
+      "conditions": [
+        {
+          "field": "book_id",
+          "value": "B_TEST_99",
+          "operator": "equals"
+        }
+      ],
+      "conjunction": "AND"
+    },
+    "sql_where": "book_id = 'B_TEST_99'",
+    "logic_en": "book_id equals 'B_TEST_99'",
+    "last_modified_by": "user123",
+    "created_at": "2025-12-21T00:04:33.839549",
+    "last_modified_at": "2025-12-21T00:04:33.839549"
+  },
+  {
+    "rule_id": 3,
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "node_id": "CC_AMER_CASH_NY_002",
+    "predicate_json": {
+      "conditions": [
+        {
+          "field": "book_id",
+          "value": "B01",
+          "operator": "not_equals"
+        }
+      ],
+      "conjunction": "AND"
+    },
+    "sql_where": "book_id != 'B01'",
+    "logic_en": "exclude bookn \"B01\"",
+    "last_modified_by": "user123",
+    "created_at": "2025-12-21T00:56:18.426333",
+    "last_modified_at": "2025-12-21T00:56:18.426333"
+  },
+  {
+    "rule_id": 4,
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "node_id": "AMER",
+    "predicate_json": {
+      "conditions": [
+        {
+          "field": "strategy_id",
+          "value": "CORE",
+          "operator": "not_equals"
+        }
+      ],
+      "conjunction": "AND"
+    },
+    "sql_where": "strategy_id != 'CORE'",
+    "logic_en": "Exclude Strategy ='CORE'",
+    "last_modified_by": "user123",
+    "created_at": "2025-12-21T11:21:37.511663",
+    "last_modified_at": "2025-12-21T11:21:37.511663"
+  },
+  {
+    "rule_id": 5,
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "node_id": "AMER_CASH_EQUITIES",
+    "predicate_json": {
+      "conditions": [
+        {
+          "field": "strategy_id",
+          "value": [
+            "S1",
+            "S2",
+            "S3"
+          ],
+          "operator": "in"
+        }
+      ],
+      "conjunction": "AND"
+    },
+    "sql_where": "strategy_id IN ('S1', 'S2', 'S3')",
+    "logic_en": "strategy_id in (S1, S2, S3)",
+    "last_modified_by": "user123",
+    "created_at": "2025-12-21T12:10:42.320647",
+    "last_modified_at": "2025-12-21T12:10:42.320647"
+  },
+  {
+    "rule_id": 39,
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "node_id": "AMER_CASH_EQUITIES",
+    "predicate_json": {
+      "conditions": [
+        {
+          "field": "strategy_id",
+          "value": [
+            "S1",
+            "S2",
+            "S3"
+          ],
+          "operator": "in"
+        }
+      ],
+      "conjunction": "AND"
+    },
+    "sql_where": "strategy_id IN ('S1', 'S2', 'S3')",
+    "logic_en": "strategy_id in (S1, S2, S3)",
+    "last_modified_by": "user123",
+    "created_at": "2025-12-26T22:23:15.938284",
+    "last_modified_at": "2025-12-26T22:23:15.938284"
+  },
+  {
+    "rule_id": 40,
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "node_id": "AMER_CASH_NY",
+    "predicate_json": {
+      "conditions": [
+        {
+          "field": "book_id",
+          "value": "B_TEST_99",
+          "operator": "equals"
+        }
+      ],
+      "conjunction": "AND"
+    },
+    "sql_where": "book_id = 'B_TEST_99'",
+    "logic_en": "book_id equals 'B_TEST_99'",
+    "last_modified_by": "user123",
+    "created_at": "2025-12-26T22:23:15.938284",
+    "last_modified_at": "2025-12-26T22:23:15.938284"
+  },
+  {
+    "rule_id": 41,
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "node_id": "CC_AMER_CASH_NY_002",
+    "predicate_json": {
+      "conditions": [
+        {
+          "field": "book_id",
+          "value": "B01",
+          "operator": "not_equals"
+        }
+      ],
+      "conjunction": "AND"
+    },
+    "sql_where": "book_id != 'B01'",
+    "logic_en": "exclude bookn \"B01\"",
+    "last_modified_by": "user123",
+    "created_at": "2025-12-26T22:23:15.938284",
+    "last_modified_at": "2025-12-26T22:23:15.938284"
+  },
+  {
+    "rule_id": 42,
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "node_id": "ROOT",
+    "predicate_json": {
+      "conditions": [
+        {
+          "field": "book_id",
+          "value": "B_TEST_99",
+          "operator": "equals"
+        }
+      ],
+      "conjunction": "AND"
+    },
+    "sql_where": "book_id = 'B_TEST_99'",
+    "logic_en": "book_id equals 'B_TEST_99'",
+    "last_modified_by": "user123",
+    "created_at": "2025-12-26T22:23:15.938284",
+    "last_modified_at": "2025-12-26T22:23:15.938284"
+  },
+  {
+    "rule_id": 38,
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "node_id": "AMER",
+    "predicate_json": {
+      "conditions": [
+        {
+          "field": "strategy_id",
+          "value": "CORE",
+          "operator": "not_equals"
+        },
+        {
+          "field": "book_id",
+          "value": [
+            "TEST"
+          ],
+          "operator": "not_in"
+        }
+      ],
+      "conjunction": "AND"
+    },
+    "sql_where": "strategy_id != 'CORE' AND book_id NOT IN ('TEST')",
+    "logic_en": "Exclude Strategy ='CORE' and BOOKS NOT IN TEST",
+    "last_modified_by": "user123",
+    "created_at": "2025-12-26T22:23:15.938284",
+    "last_modified_at": "2025-12-26T22:51:46.453238"
+  },
+  {
+    "rule_id": 43,
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "node_id": "CC_AMER_CASH_NY_003",
+    "predicate_json": {
+      "conditions": [
+        {
+          "field": "book_id",
+          "value": "TEST123",
+          "operator": "not_equals"
+        }
+      ],
+      "conjunction": "AND"
+    },
+    "sql_where": "book_id != 'TEST123'",
+    "logic_en": "book_id not equals 'TEST123'",
+    "last_modified_by": "user123",
+    "created_at": "2025-12-26T22:55:42.627131",
+    "last_modified_at": "2025-12-26T22:55:42.627131"
+  },
+  {
+    "rule_id": 44,
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "node_id": "AMER_PROG_TRADING",
+    "predicate_json": {
+      "conditions": [
+        {
+          "field": "cc_id",
+          "value": "1234",
+          "operator": "not_equals"
+        }
+      ],
+      "conjunction": "AND"
+    },
+    "sql_where": "cc_id != '1234'",
+    "logic_en": "cc_id not equals '1234'",
+    "last_modified_by": "user123",
+    "created_at": "2025-12-26T22:56:10.288896",
+    "last_modified_at": "2025-12-26T22:56:10.288896"
+  }
+]

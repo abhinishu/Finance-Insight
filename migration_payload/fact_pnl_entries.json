@@ -1,0 +1,2282 @@
+[
+  {
+    "id": "895553c4-cbc7-4698-a8d4-7b746796b157",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_007",
+    "amount": "73000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "ALGO",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "19203.43",
+    "wtd_amount": "134424.03",
+    "ytd_amount": "1920343.34"
+  },
+  {
+    "id": "403aa09a-6135-4967-9d56-c33c5daadaa5",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_008",
+    "amount": "185000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "VOL",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "48666.24",
+    "wtd_amount": "340663.65",
+    "ytd_amount": "4866623.54"
+  },
+  {
+    "id": "38dca0ff-935e-463a-8351-9e1b8e8c312b",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_009",
+    "amount": "97000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "MARKET_MAKING",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "25516.89",
+    "wtd_amount": "178618.24",
+    "ytd_amount": "2551689.10"
+  },
+  {
+    "id": "6e2f340e-a0ef-4dd2-9c78-7b9a441a8b71",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_010",
+    "amount": "215000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "ALGO",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "56558.06",
+    "wtd_amount": "395906.40",
+    "ytd_amount": "5655805.73"
+  },
+  {
+    "id": "9d6fe094-d6de-4376-b432-36cb7b78c65b",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_011",
+    "amount": "63000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "VOL",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "16572.83",
+    "wtd_amount": "116009.78",
+    "ytd_amount": "1657282.61"
+  },
+  {
+    "id": "1b0bc6cb-cdcf-4495-a318-0f3a8a9f1c5b",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_012",
+    "amount": "270000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "MARKET_MAKING",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "71026.40",
+    "wtd_amount": "497184.78",
+    "ytd_amount": "7102639.76"
+  },
+  {
+    "id": "453fdc7c-b2a8-4d48-b49d-c05e00cb0022",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_013",
+    "amount": "108000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "ALGO",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "28410.56",
+    "wtd_amount": "198873.91",
+    "ytd_amount": "2841055.90"
+  },
+  {
+    "id": "fa52738b-0c48-41a8-94d4-abac741d4621",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_014",
+    "amount": "195000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "VOL",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "51296.84",
+    "wtd_amount": "359077.90",
+    "ytd_amount": "5129684.27"
+  },
+  {
+    "id": "3e027e32-259c-4dd9-aa36-9c6ad26b61ce",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_015",
+    "amount": "87000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "MARKET_MAKING",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "22886.28",
+    "wtd_amount": "160203.99",
+    "ytd_amount": "2288628.37"
+  },
+  {
+    "id": "cd343f75-f2f8-40f0-ad3e-40b025b18ceb",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_016",
+    "amount": "315000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "ALGO",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "82864.13",
+    "wtd_amount": "580048.91",
+    "ytd_amount": "8286413.05"
+  },
+  {
+    "id": "41c3dc94-4463-4ac4-b892-76cf058fd04b",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_017",
+    "amount": "68000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "VOL",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "17888.13",
+    "wtd_amount": "125216.91",
+    "ytd_amount": "1788812.98"
+  },
+  {
+    "id": "2bf8970f-55c3-4354-a885-f70b922a186b",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_018",
+    "amount": "235000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "MARKET_MAKING",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "61819.27",
+    "wtd_amount": "432734.90",
+    "ytd_amount": "6181927.20"
+  },
+  {
+    "id": "342a8cab-80c4-4a10-96ff-e048518a6df4",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_019",
+    "amount": "128000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "ALGO",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "33671.77",
+    "wtd_amount": "235702.42",
+    "ytd_amount": "3367177.37"
+  },
+  {
+    "id": "97005b2c-d197-4348-924c-b94f2c81be63",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_020",
+    "amount": "205000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "VOL",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "53927.45",
+    "wtd_amount": "377492.15",
+    "ytd_amount": "5392745.00"
+  },
+  {
+    "id": "22f9b9fa-6a16-4cde-9940-70c4c54a0f07",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_021",
+    "amount": "0.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "MARKET_MAKING",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "0.00",
+    "wtd_amount": "0.00",
+    "ytd_amount": "0.00"
+  },
+  {
+    "id": "4e5db393-bd71-40d0-81cd-3facfa77c11c",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_022",
+    "amount": "0.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "ALGO",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "0.00",
+    "wtd_amount": "894406.49",
+    "ytd_amount": "1262691.51"
+  },
+  {
+    "id": "c9938a0b-8363-4b8c-9a83-d1720d8cb42f",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_029",
+    "amount": "58000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "VOL",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "15257.52",
+    "wtd_amount": "106802.66",
+    "ytd_amount": "1525752.24"
+  },
+  {
+    "id": "0830b59e-6793-479f-bda6-6f642f3fc993",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_030",
+    "amount": "208000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "MARKET_MAKING",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "54716.63",
+    "wtd_amount": "383016.43",
+    "ytd_amount": "5471663.22"
+  },
+  {
+    "id": "23199ffd-549f-49e9-8dc4-205a9bce9524",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_021",
+    "amount": "450000.00",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "MARKET_MAKING",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "225337.61",
+    "wtd_amount": "1577363.26",
+    "ytd_amount": "22533760.95"
+  },
+  {
+    "id": "5734f975-1675-4a1c-8f5a-b8439d7c4ae2",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_022",
+    "amount": "0.00",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "ALGO",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "0.00",
+    "wtd_amount": "1752625.85",
+    "ytd_amount": "2503751.22"
+  },
+  {
+    "id": "10f5312e-a6e1-4f97-8ff0-73faa9e09447",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_029",
+    "amount": "60000.00",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "VOL",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "30045.01",
+    "wtd_amount": "210315.11",
+    "ytd_amount": "3004501.46"
+  },
+  {
+    "id": "a4ad980d-e174-4077-8c97-273b788ad325",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_030",
+    "amount": "210000.25",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "MARKET_MAKING",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "105157.68",
+    "wtd_amount": "736102.94",
+    "ytd_amount": "10515755.36"
+  },
+  {
+    "id": "2101a4db-f2da-4d04-b6cf-c424ac78fdab",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_027",
+    "amount": "90000.25",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "MARKET_MAKING",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "45067.64",
+    "wtd_amount": "315472.73",
+    "ytd_amount": "4506752.45"
+  },
+  {
+    "id": "3596a191-2ce8-4841-b746-94cdc1cc7fa4",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_028",
+    "amount": "290000.50",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "ALGO",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "145217.81",
+    "wtd_amount": "1016523.17",
+    "ytd_amount": "14521757.44"
+  },
+  {
+    "id": "348b3d87-a12e-4515-bc53-110ac37769dd",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_001",
+    "amount": "125000.50",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "ALGO",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "125000.50",
+    "wtd_amount": "875000.25",
+    "ytd_amount": "12500000.75"
+  },
+  {
+    "id": "9485ef7f-a0ca-46d3-97e5-2c5b6c19c353",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_001",
+    "amount": "120000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "ALGO",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "120000.00",
+    "wtd_amount": "850000.00",
+    "ytd_amount": "12000000.00"
+  },
+  {
+    "id": "bac3088f-5e1c-4263-a468-cfb6abca92f7",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_002",
+    "amount": "87500.75",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "VOL",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "87500.75",
+    "wtd_amount": "612500.50",
+    "ytd_amount": "8750000.25"
+  },
+  {
+    "id": "2860c2f8-70c3-4687-b581-b9a750acefb5",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_002",
+    "amount": "90000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "VOL",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "90000.00",
+    "wtd_amount": "630000.00",
+    "ytd_amount": "9000000.00"
+  },
+  {
+    "id": "1cd0424f-0e23-4fc8-8b58-c41e66ce6ec0",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_014",
+    "amount": "190000.00",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "VOL",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "190000.00",
+    "wtd_amount": "1330000.00",
+    "ytd_amount": "19000000.00"
+  },
+  {
+    "id": "39e7a888-300a-4960-abbe-5ab08604e78f",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_003",
+    "amount": "250000.00",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "MARKET_MAKING",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "250000.00",
+    "wtd_amount": "1750000.00",
+    "ytd_amount": "25000000.00"
+  },
+  {
+    "id": "bf1bfd95-27d7-4bcf-91d4-7e06fd0c8f2e",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_003",
+    "amount": "245000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "MARKET_MAKING",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "245000.00",
+    "wtd_amount": "1715000.00",
+    "ytd_amount": "24500000.00"
+  },
+  {
+    "id": "ee7c2e0c-fd28-484f-95ca-855019d404b9",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_004",
+    "amount": "150000.25",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "ALGO",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "150000.25",
+    "wtd_amount": "1050000.15",
+    "ytd_amount": "15000000.50"
+  },
+  {
+    "id": "f460879f-8b64-4081-8e86-7fac44fa8215",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_004",
+    "amount": "155000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "ALGO",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "155000.00",
+    "wtd_amount": "1085000.00",
+    "ytd_amount": "15500000.00"
+  },
+  {
+    "id": "373354b1-651c-4f9b-8e5d-69128c5208c5",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_005",
+    "amount": "50000.00",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "VOL",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "50000.00",
+    "wtd_amount": "350000.00",
+    "ytd_amount": "5000000.00"
+  },
+  {
+    "id": "438fd425-7aa1-41d4-8e0d-13ef3bbad62c",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_005",
+    "amount": "48000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "VOL",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "48000.00",
+    "wtd_amount": "336000.00",
+    "ytd_amount": "4800000.00"
+  },
+  {
+    "id": "23f22942-48d0-44ad-9dd2-c991fd0c958a",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_006",
+    "amount": "300000.50",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "MARKET_MAKING",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "300000.50",
+    "wtd_amount": "2100000.35",
+    "ytd_amount": "30000000.75"
+  },
+  {
+    "id": "a373ba68-73c8-4a69-a5bc-5f1e309eb78d",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_006",
+    "amount": "295000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "MARKET_MAKING",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "295000.00",
+    "wtd_amount": "2065000.00",
+    "ytd_amount": "29500000.00"
+  },
+  {
+    "id": "613a7abc-22b2-4649-be15-a318667d0579",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_007",
+    "amount": "75000.25",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "ALGO",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "75000.25",
+    "wtd_amount": "525000.15",
+    "ytd_amount": "7500000.50"
+  },
+  {
+    "id": "8eae09ce-e05f-44db-ac57-8443a35b5f83",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_007",
+    "amount": "73000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "ALGO",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "73000.00",
+    "wtd_amount": "511000.00",
+    "ytd_amount": "7300000.00"
+  },
+  {
+    "id": "02153b2b-2e54-40f8-8845-f292eb09aeb1",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_008",
+    "amount": "180000.00",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "VOL",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "180000.00",
+    "wtd_amount": "1260000.00",
+    "ytd_amount": "18000000.00"
+  },
+  {
+    "id": "099439fe-819d-4da9-977e-121e93d53fe8",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_008",
+    "amount": "185000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "VOL",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "185000.00",
+    "wtd_amount": "1295000.00",
+    "ytd_amount": "18500000.00"
+  },
+  {
+    "id": "945a207a-013c-486a-aef5-1a7388028226",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_009",
+    "amount": "95000.75",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "MARKET_MAKING",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "95000.75",
+    "wtd_amount": "665000.50",
+    "ytd_amount": "9500000.25"
+  },
+  {
+    "id": "28fcf65e-6208-4835-a1c7-1421bd3a23fe",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_009",
+    "amount": "97000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "MARKET_MAKING",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "97000.00",
+    "wtd_amount": "679000.00",
+    "ytd_amount": "9700000.00"
+  },
+  {
+    "id": "cd58a888-c509-4da5-93c7-5cfe61d2cc1d",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_010",
+    "amount": "220000.50",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "ALGO",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "220000.50",
+    "wtd_amount": "1540000.35",
+    "ytd_amount": "22000000.75"
+  },
+  {
+    "id": "05d19536-b266-4caf-9499-a638bfcc9c9c",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_010",
+    "amount": "215000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "ALGO",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "215000.00",
+    "wtd_amount": "1505000.00",
+    "ytd_amount": "21500000.00"
+  },
+  {
+    "id": "b9fd09e2-e3bf-47e1-aaaa-e9017b8e3b81",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_011",
+    "amount": "65000.00",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "VOL",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "65000.00",
+    "wtd_amount": "455000.00",
+    "ytd_amount": "6500000.00"
+  },
+  {
+    "id": "07cd08a0-df84-4772-9f6e-982c9a1e315b",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_011",
+    "amount": "63000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "VOL",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "63000.00",
+    "wtd_amount": "441000.00",
+    "ytd_amount": "6300000.00"
+  },
+  {
+    "id": "d31f2a79-0809-4c8e-abc8-f658c55e1782",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_012",
+    "amount": "275000.25",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "MARKET_MAKING",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "275000.25",
+    "wtd_amount": "1925000.15",
+    "ytd_amount": "27500000.50"
+  },
+  {
+    "id": "6b7e7c37-a6d5-4635-a302-5b368db0f23f",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_012",
+    "amount": "270000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "MARKET_MAKING",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "270000.00",
+    "wtd_amount": "1890000.00",
+    "ytd_amount": "27000000.00"
+  },
+  {
+    "id": "ea169a1c-142e-48b1-98eb-38f444c939e2",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_013",
+    "amount": "110000.75",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "ALGO",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "110000.75",
+    "wtd_amount": "770000.50",
+    "ytd_amount": "11000000.25"
+  },
+  {
+    "id": "38ccb2f9-89ba-4bb9-b356-bec236bc910f",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_013",
+    "amount": "108000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "ALGO",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "108000.00",
+    "wtd_amount": "756000.00",
+    "ytd_amount": "10800000.00"
+  },
+  {
+    "id": "640023b7-a719-49e8-b048-a0149175038a",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_014",
+    "amount": "195000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "VOL",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "195000.00",
+    "wtd_amount": "1365000.00",
+    "ytd_amount": "19500000.00"
+  },
+  {
+    "id": "9a400e30-f35f-464c-ab29-36e95d0d5624",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_015",
+    "amount": "85000.25",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "MARKET_MAKING",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "85000.25",
+    "wtd_amount": "595000.15",
+    "ytd_amount": "8500000.50"
+  },
+  {
+    "id": "9be4ccd3-aa8a-40fd-8091-b78d3bba1128",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_015",
+    "amount": "87000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "MARKET_MAKING",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "87000.00",
+    "wtd_amount": "609000.00",
+    "ytd_amount": "8700000.00"
+  },
+  {
+    "id": "fecec8f7-892c-4aaa-b8b8-822bbcfa15ec",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_016",
+    "amount": "320000.50",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "ALGO",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "320000.50",
+    "wtd_amount": "2240000.35",
+    "ytd_amount": "32000000.75"
+  },
+  {
+    "id": "a10e2ba9-8adb-4686-ab2f-5b19f10abaf4",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_016",
+    "amount": "315000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "ALGO",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "315000.00",
+    "wtd_amount": "2205000.00",
+    "ytd_amount": "31500000.00"
+  },
+  {
+    "id": "53923cda-bb93-4821-bfba-aedcd90c61aa",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_017",
+    "amount": "70000.00",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "VOL",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "70000.00",
+    "wtd_amount": "490000.00",
+    "ytd_amount": "7000000.00"
+  },
+  {
+    "id": "4d4f5591-6cdd-496f-a6a2-ea337daefe7f",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_017",
+    "amount": "68000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "VOL",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "68000.00",
+    "wtd_amount": "476000.00",
+    "ytd_amount": "6800000.00"
+  },
+  {
+    "id": "4a1a9670-11d9-4598-8ce7-fecefce347a8",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_018",
+    "amount": "240000.25",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "MARKET_MAKING",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "240000.25",
+    "wtd_amount": "1680000.15",
+    "ytd_amount": "24000000.50"
+  },
+  {
+    "id": "28f91f4e-e5d7-4b76-bbc6-eb9c76fdc419",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_018",
+    "amount": "235000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "MARKET_MAKING",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "235000.00",
+    "wtd_amount": "1645000.00",
+    "ytd_amount": "23500000.00"
+  },
+  {
+    "id": "0c95ccfa-4771-4196-a26e-05a45589bd99",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_019",
+    "amount": "130000.75",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "ALGO",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "130000.75",
+    "wtd_amount": "910000.50",
+    "ytd_amount": "13000000.25"
+  },
+  {
+    "id": "dc1b8951-235d-4f35-a36e-f7cc542d8315",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_019",
+    "amount": "128000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "ALGO",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "128000.00",
+    "wtd_amount": "896000.00",
+    "ytd_amount": "12800000.00"
+  },
+  {
+    "id": "6dcda134-8428-4cea-9185-18b9a4114d69",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_020",
+    "amount": "200000.00",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "VOL",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "200000.00",
+    "wtd_amount": "1400000.00",
+    "ytd_amount": "20000000.00"
+  },
+  {
+    "id": "9707cf12-915b-4f78-ab59-aaf909d79669",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_020",
+    "amount": "205000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "VOL",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "205000.00",
+    "wtd_amount": "1435000.00",
+    "ytd_amount": "20500000.00"
+  },
+  {
+    "id": "85bd4af7-9be1-45ad-9fc7-eb157918a941",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_021",
+    "amount": "450000.00",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "MARKET_MAKING",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "450000.00",
+    "wtd_amount": "3150000.00",
+    "ytd_amount": "45000000.00"
+  },
+  {
+    "id": "535a6701-f109-4f4a-85e8-17bbf660cb55",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_021",
+    "amount": "0.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "MARKET_MAKING",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "0.00",
+    "wtd_amount": "0.00",
+    "ytd_amount": "0.00"
+  },
+  {
+    "id": "61713c3f-c89d-429b-9528-fb5c23ba8651",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_022",
+    "amount": "0.00",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "ALGO",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "0.00",
+    "wtd_amount": "3500000.00",
+    "ytd_amount": "5000000.00"
+  },
+  {
+    "id": "d6c32e9f-d4ee-466e-af3b-436eb0a615cd",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_022",
+    "amount": "0.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "ALGO",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "0.00",
+    "wtd_amount": "3400000.00",
+    "ytd_amount": "4800000.00"
+  },
+  {
+    "id": "3da19863-3113-42ba-b540-40b0956942d7",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_023",
+    "amount": "105000.25",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "VOL",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "105000.25",
+    "wtd_amount": "735000.15",
+    "ytd_amount": "10500000.50"
+  },
+  {
+    "id": "deadcc10-d9ea-4491-a732-3e90b5ce45f9",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_023",
+    "amount": "103000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "VOL",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "103000.00",
+    "wtd_amount": "721000.00",
+    "ytd_amount": "10300000.00"
+  },
+  {
+    "id": "f943cee8-7bbb-4cce-9cd1-4605a100259c",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_024",
+    "amount": "260000.50",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "MARKET_MAKING",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "260000.50",
+    "wtd_amount": "1820000.35",
+    "ytd_amount": "26000000.75"
+  },
+  {
+    "id": "e018efc4-6cf9-4edb-845a-1f3ac6cb19fa",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_024",
+    "amount": "255000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "MARKET_MAKING",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "255000.00",
+    "wtd_amount": "1785000.00",
+    "ytd_amount": "25500000.00"
+  },
+  {
+    "id": "d1dbe001-1d20-400d-a06c-8050e8672941",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_025",
+    "amount": "140000.75",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "ALGO",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "140000.75",
+    "wtd_amount": "980000.50",
+    "ytd_amount": "14000000.25"
+  },
+  {
+    "id": "4de1caeb-906f-47a6-bec1-16eee4822937",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_025",
+    "amount": "138000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "ALGO",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "138000.00",
+    "wtd_amount": "966000.00",
+    "ytd_amount": "13800000.00"
+  },
+  {
+    "id": "c1b0afe7-0c81-4428-9603-4786913285ac",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_026",
+    "amount": "170000.00",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "VOL",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "170000.00",
+    "wtd_amount": "1190000.00",
+    "ytd_amount": "17000000.00"
+  },
+  {
+    "id": "a1c6312e-817f-49d5-9917-83176e1db912",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_026",
+    "amount": "175000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "VOL",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "175000.00",
+    "wtd_amount": "1225000.00",
+    "ytd_amount": "17500000.00"
+  },
+  {
+    "id": "3381b939-2709-4a41-8082-423c0cdfc645",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_027",
+    "amount": "90000.25",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "MARKET_MAKING",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "90000.25",
+    "wtd_amount": "630000.15",
+    "ytd_amount": "9000000.50"
+  },
+  {
+    "id": "a6faf427-7a64-41e7-8537-c8ff4d3bfcb9",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_001",
+    "amount": "120000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "ALGO",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "31567.29",
+    "wtd_amount": "223601.62",
+    "ytd_amount": "3156728.78"
+  },
+  {
+    "id": "0280a33a-6152-4a90-b2e5-5677df474d8b",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_002",
+    "amount": "90000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "VOL",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "23675.47",
+    "wtd_amount": "165728.26",
+    "ytd_amount": "2367546.59"
+  },
+  {
+    "id": "485a708c-b7e7-4d64-9262-78aee6e6c639",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_003",
+    "amount": "245000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "MARKET_MAKING",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "64449.88",
+    "wtd_amount": "451149.15",
+    "ytd_amount": "6444987.93"
+  },
+  {
+    "id": "efcbc1df-319a-4e32-a041-080f0891b162",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_004",
+    "amount": "155000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "ALGO",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "40774.41",
+    "wtd_amount": "285420.89",
+    "ytd_amount": "4077441.34"
+  },
+  {
+    "id": "71ba095b-a93c-458b-9688-c7893e4dc6ca",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_005",
+    "amount": "48000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "VOL",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "12626.92",
+    "wtd_amount": "88388.41",
+    "ytd_amount": "1262691.51"
+  },
+  {
+    "id": "fd3089b0-0e28-4cd1-9b5d-67d77aeb3399",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_006",
+    "amount": "295000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "MARKET_MAKING",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "77602.92",
+    "wtd_amount": "543220.41",
+    "ytd_amount": "7760291.59"
+  },
+  {
+    "id": "7d1e0624-183f-475a-9229-7dc1276e23fc",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_027",
+    "amount": "92000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "MARKET_MAKING",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "92000.00",
+    "wtd_amount": "644000.00",
+    "ytd_amount": "9200000.00"
+  },
+  {
+    "id": "26bb7623-273a-422d-914b-2f6fee6c3d5c",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_028",
+    "amount": "290000.50",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "ALGO",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "290000.50",
+    "wtd_amount": "2030000.35",
+    "ytd_amount": "29000000.75"
+  },
+  {
+    "id": "13607690-cbd9-4ced-a74e-e2acbf8869f8",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_028",
+    "amount": "285000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "ALGO",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "285000.00",
+    "wtd_amount": "1995000.00",
+    "ytd_amount": "28500000.00"
+  },
+  {
+    "id": "71b4db82-b723-494e-b614-4758ec197061",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_029",
+    "amount": "60000.00",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "VOL",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "60000.00",
+    "wtd_amount": "420000.00",
+    "ytd_amount": "6000000.00"
+  },
+  {
+    "id": "f5e54c98-3e99-4ef2-bf71-6b67bc87143c",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_029",
+    "amount": "58000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "VOL",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "58000.00",
+    "wtd_amount": "406000.00",
+    "ytd_amount": "5800000.00"
+  },
+  {
+    "id": "2564e208-decb-427d-8079-e78544f5fbc0",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_030",
+    "amount": "210000.25",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "MARKET_MAKING",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "210000.25",
+    "wtd_amount": "1470000.15",
+    "ytd_amount": "21000000.50"
+  },
+  {
+    "id": "0d746b47-52ef-4d06-bfbd-1aed1057d463",
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_030",
+    "amount": "208000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "MARKET_MAKING",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "208000.00",
+    "wtd_amount": "1456000.00",
+    "ytd_amount": "20800000.00"
+  },
+  {
+    "id": "4b06e6f8-4d96-4467-9c37-ac8a73060f24",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_007",
+    "amount": "75000.25",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "ALGO",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "37556.39",
+    "wtd_amount": "262893.97",
+    "ytd_amount": "3755627.08"
+  },
+  {
+    "id": "6c275e04-097a-47b8-aa56-4cfac7d85b94",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_008",
+    "amount": "180000.00",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "VOL",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "90135.04",
+    "wtd_amount": "630945.30",
+    "ytd_amount": "9013504.38"
+  },
+  {
+    "id": "6b582525-4c88-4d82-85a5-958e18c58953",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_009",
+    "amount": "95000.75",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "MARKET_MAKING",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "47571.65",
+    "wtd_amount": "332999.17",
+    "ytd_amount": "4757127.44"
+  },
+  {
+    "id": "679aca58-dd7d-4853-8dc7-5eb828ad780e",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_010",
+    "amount": "220000.50",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "ALGO",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "110165.30",
+    "wtd_amount": "771155.55",
+    "ytd_amount": "11016505.74"
+  },
+  {
+    "id": "cccc0b34-a4c5-45b7-80b6-606d11841e50",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_011",
+    "amount": "65000.00",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "VOL",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "32548.77",
+    "wtd_amount": "227841.36",
+    "ytd_amount": "3254876.59"
+  },
+  {
+    "id": "d7a5e8d8-6c8b-472c-bbdf-107f6c41ffb8",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_012",
+    "amount": "275000.25",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "MARKET_MAKING",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "137706.45",
+    "wtd_amount": "963944.30",
+    "ytd_amount": "13770631.93"
+  },
+  {
+    "id": "9e5a8854-13cf-40ad-bc62-af44ebb06dcb",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_013",
+    "amount": "110000.75",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "ALGO",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "55082.91",
+    "wtd_amount": "385577.93",
+    "ytd_amount": "5508252.81"
+  },
+  {
+    "id": "ec65b43a-6459-44cd-a7d8-630dd46e5899",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_014",
+    "amount": "190000.00",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "VOL",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "95142.55",
+    "wtd_amount": "665997.82",
+    "ytd_amount": "9514254.62"
+  },
+  {
+    "id": "aa60c1b6-4fb1-4b31-b4af-20bce010e37a",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_015",
+    "amount": "85000.25",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "MARKET_MAKING",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "42563.90",
+    "wtd_amount": "297946.48",
+    "ytd_amount": "4256377.32"
+  },
+  {
+    "id": "f7e4e84b-457e-4e17-9067-52bf39bff24b",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_023",
+    "amount": "103000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "VOL",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "27095.26",
+    "wtd_amount": "189666.79",
+    "ytd_amount": "2709525.54"
+  },
+  {
+    "id": "d5c1c062-c19f-4783-920c-57255dabe00b",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_024",
+    "amount": "255000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "MARKET_MAKING",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "67080.49",
+    "wtd_amount": "469563.41",
+    "ytd_amount": "6708048.66"
+  },
+  {
+    "id": "a9e4f8ce-71ea-4fef-a21e-00b8bd7c4bc7",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_025",
+    "amount": "138000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "ALGO",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "36302.38",
+    "wtd_amount": "254116.67",
+    "ytd_amount": "3630238.10"
+  },
+  {
+    "id": "f5bacadd-6876-4cf7-b34a-9278cf281ca4",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_026",
+    "amount": "175000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "VOL",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "46035.63",
+    "wtd_amount": "322249.40",
+    "ytd_amount": "4603562.81"
+  },
+  {
+    "id": "bd20c953-e701-4530-98e2-b2d1a4a1cc82",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_027",
+    "amount": "92000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "MARKET_MAKING",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "24201.59",
+    "wtd_amount": "169411.11",
+    "ytd_amount": "2420158.73"
+  },
+  {
+    "id": "0a49e4c5-b5ba-4f37-925e-c74372b462b2",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_028",
+    "amount": "285000.00",
+    "scenario": "PRIOR",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "ALGO",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "74972.31",
+    "wtd_amount": "524806.16",
+    "ytd_amount": "7497230.85"
+  },
+  {
+    "id": "bd793c5b-4c05-443a-a305-76676fbe7919",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_016",
+    "amount": "320000.50",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "ALGO",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "160240.34",
+    "wtd_amount": "1121680.72",
+    "ytd_amount": "16024008.18"
+  },
+  {
+    "id": "850ad0ad-7db6-4405-bd3b-e94506077c83",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_017",
+    "amount": "70000.00",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "VOL",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "35052.51",
+    "wtd_amount": "245367.62",
+    "ytd_amount": "3505251.70"
+  },
+  {
+    "id": "2f5e6d05-128f-40cc-acf5-1dde8c48e0c9",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_018",
+    "amount": "240000.25",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "MARKET_MAKING",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "120180.18",
+    "wtd_amount": "841260.49",
+    "ytd_amount": "12018006.08"
+  },
+  {
+    "id": "118a7643-9bd2-4e8e-854f-aceb442efd79",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_019",
+    "amount": "130000.75",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "ALGO",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "65097.92",
+    "wtd_amount": "455682.98",
+    "ytd_amount": "6509753.29"
+  },
+  {
+    "id": "e0aed379-6de6-4a85-a420-7f6f104ad63e",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_020",
+    "amount": "200000.00",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "VOL",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "100150.06",
+    "wtd_amount": "701050.33",
+    "ytd_amount": "10015004.86"
+  },
+  {
+    "id": "6db45ec4-1632-4eb4-843f-a82d775b168b",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_001",
+    "amount": "125000.50",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "ALGO",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "62594.03",
+    "wtd_amount": "438156.60",
+    "ytd_amount": "6259378.43"
+  },
+  {
+    "id": "f1057004-3f3a-4444-9e09-4c175762f082",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_002",
+    "amount": "87500.75",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "VOL",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "43816.02",
+    "wtd_amount": "306709.77",
+    "ytd_amount": "4381564.76"
+  },
+  {
+    "id": "b5dddc17-4fc9-40aa-acb8-e13cf3f40ae3",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_003",
+    "amount": "250000.00",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "MARKET_MAKING",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "125187.56",
+    "wtd_amount": "876312.92",
+    "ytd_amount": "12518756.08"
+  },
+  {
+    "id": "a81446f1-3b9e-46e6-9783-5c92a0805c5b",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_004",
+    "amount": "150000.25",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "ALGO",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "75112.67",
+    "wtd_amount": "525787.83",
+    "ytd_amount": "7511253.90"
+  },
+  {
+    "id": "3942e283-2d73-4ea6-887c-067d4b60e805",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_005",
+    "amount": "50000.00",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "VOL",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "25037.52",
+    "wtd_amount": "175262.59",
+    "ytd_amount": "2503751.22"
+  },
+  {
+    "id": "fe94685b-0a95-4fc2-8eb9-e44691109a89",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_006",
+    "amount": "300000.50",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "MARKET_MAKING",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "150225.32",
+    "wtd_amount": "1051575.69",
+    "ytd_amount": "15022507.68"
+  },
+  {
+    "id": "a40df032-cea6-4098-931f-26cf700d1bf1",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_023",
+    "amount": "105000.25",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "VOL",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "52578.91",
+    "wtd_amount": "368051.51",
+    "ytd_amount": "5257877.80"
+  },
+  {
+    "id": "ba22dac9-be68-4516-a67e-2e41092d0ac1",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_024",
+    "amount": "260000.50",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "MARKET_MAKING",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "130195.31",
+    "wtd_amount": "911365.63",
+    "ytd_amount": "13019506.70"
+  },
+  {
+    "id": "e2022d70-ed09-4a1f-af4c-08f8dec91628",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_025",
+    "amount": "140000.75",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "AMER",
+      "source": "sterling_facts.csv",
+      "strategy": "ALGO",
+      "legal_entity": "US_HOLDINGS",
+      "risk_officer": "NYC_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "70105.41",
+    "wtd_amount": "490735.49",
+    "ytd_amount": "7010503.53"
+  },
+  {
+    "id": "b749e1fa-a283-45ca-bd7d-fad4efde2600",
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "pnl_date": "2025-12-24",
+    "category_code": "TRADE_026",
+    "amount": "170000.00",
+    "scenario": "ACTUAL",
+    "audit_metadata": {
+      "region": "EMEA",
+      "source": "sterling_facts.csv",
+      "strategy": "VOL",
+      "legal_entity": "UK_LTD",
+      "risk_officer": "LDN_001",
+      "import_timestamp": "2025-12-24"
+    },
+    "daily_amount": "85127.53",
+    "wtd_amount": "595892.79",
+    "ytd_amount": "8512754.14"
+  }
+]
