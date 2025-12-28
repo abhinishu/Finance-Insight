@@ -52,3 +52,4 @@ print(f"TRADE nodes in children_dict['ROOT']: {[c for c in children_dict.get('RO
 
 session.close()
 
+

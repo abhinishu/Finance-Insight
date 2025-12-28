@@ -163,3 +163,4 @@ const GlobalReportingBar: React.FC = () => {
 
 export default GlobalReportingBar
 
+

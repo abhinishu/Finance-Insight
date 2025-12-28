@@ -343,3 +343,4 @@ The logical engine is ready to transform raw P&L into "Adjusted P&L" across the 
 - Test sequential rule application
 - Verify "Golden Thread" mathematical integrity
 
+

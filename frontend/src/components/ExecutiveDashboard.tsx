@@ -17,6 +17,76 @@ import './ExecutiveDashboard.css'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
+// ============================================================================
+// HELPER FUNCTIONS: Defensive Data Processing
+// ============================================================================
+
+/**
+ * HELPER 1: Recursively flatten tree AND remove duplicates
+ * Safely handles nested children arrays and null/undefined values
+ * Uses a Set to track seen IDs and prevent duplicate rows in AG Grid
+ */
+const flattenTree = (nodes: any[], seenIds = new Set<string>()): any[] => {
+  let flat: any[] = []
+  if (!nodes || !Array.isArray(nodes)) return flat
+  
+  nodes.forEach(node => {
+    if (!node) return // Skip null/undefined nodes
+    
+    // Ensure we have a valid ID. Fallback to name or random string if missing.
+    const uniqueId = node.node_id || node.id || node.node_name || Math.random().toString(36)
+    
+    // DEDUPLICATION: Only add if we haven't seen this ID before
+    if (!seenIds.has(uniqueId)) {
+      seenIds.add(uniqueId)
+      flat.push(node)
+      
+      // Process children recursively, passing the 'seenIds' Set along
+      if (node.children && Array.isArray(node.children) && node.children.length > 0) {
+        flat = flat.concat(flattenTree(node.children, seenIds))
+      }
+    }
+  })
+  
+  return flat
+}
+
+/**
+ * HELPER 2: Robustly parse numerical amounts from any format (String, Number, Object)
+ * Handles V1 API (strings), V2 API (objects), and edge cases
+ */
+const parseAmount = (val: any): number => {
+  if (val === null || val === undefined) return 0
+  
+  if (typeof val === 'number') {
+    return isNaN(val) ? 0 : val
+  }
+  
+  // Remove currency symbols/commas if string
+  if (typeof val === 'string') {
+    const cleaned = val.replace(/[^0-9.-]+/g, '')
+    const parsed = parseFloat(cleaned)
+    return isNaN(parsed) ? 0 : parsed
+  }
+  
+  // Handle V2 API Objects { daily: "...", mtd: "..." }
+  if (typeof val === 'object') {
+    const raw = val.daily || val.amount || val.value || 0
+    if (typeof raw === 'string') {
+      const cleaned = raw.replace(/[^0-9.-]+/g, '')
+      const parsed = parseFloat(cleaned)
+      return isNaN(parsed) ? 0 : parsed
+    }
+    return typeof raw === 'number' ? (isNaN(raw) ? 0 : raw) : 0
+  }
+  
+  return 0
+}
+
+// ============================================================================
+// INTERFACES
+// ============================================================================
+
 interface UseCase {
   use_case_id: string
   name: string
@@ -529,23 +599,63 @@ const ExecutiveDashboard: React.FC = () => {
     return result
   }
 
+  // --- RESTORED LOGIC START ---
+  // DEFENSIVE DATA PROCESSING: Process rowData into safe, flat format
+  const processedRows = useMemo(() => {
+    if (!rowData) return []
+    
+    // DEFENSIVE: Check for "Envelope" structure vs Raw Array
+    let rawInput = rowData
+    if (!Array.isArray(rawInput) && (rawInput as any).hierarchy) {
+      rawInput = (rawInput as any).hierarchy
+    }
+    
+    // Ensure we have an array
+    const rootNodes = Array.isArray(rawInput) ? rawInput : [rawInput].filter(Boolean)
+    
+    if (rootNodes.length === 0) return []
+    
+    // 1. Flatten the tree (Get all nodes, including leaf nodes)
+    const allNodes = flattenTree(rootNodes)
+    
+    // 2. Map to Flat Format for Charts with safe parsing
+    return allNodes.map(row => {
+      if (!row) return null
+      
+      return {
+        ...row,
+        // Parse amounts safely
+        original_amount: parseAmount(row.natural_value || row.original_amount),
+        adjusted_amount: parseAmount(row.adjusted_value || row.adjusted_amount),
+        
+        // Extract Rule Info (Try all possible keys)
+        rule_name: row.rule?.rule_name || row.rule?.name || row.rule_name || row.rule?.logic_en || null,
+        applied_rule_id: row.rule?.rule_id || row.rule?.id || row.applied_rule_id || null,
+        
+        // Calculate Delta
+        delta: parseAmount(row.adjusted_value || row.adjusted_amount) - parseAmount(row.natural_value || row.original_amount)
+      }
+    }).filter(Boolean) // Remove any null entries
+  }, [rowData])
+  // --- RESTORED LOGIC END ---
+
   // Calculate rule attribution from row data (memoized for performance)
   // Uses "Anchor & Scale" logic: Selected Scope Node is Source of Truth
   const attributionResult = useMemo(() => {
-    if (!rowData || rowData.length === 0) {
-      console.log('[EXECUTIVE DASHBOARD] No rowData for attribution calculation')
+    if (!processedRows || processedRows.length === 0) {
+      console.log('[EXECUTIVE DASHBOARD] No processedRows for attribution calculation')
       return { totalOriginal: 0, totalAdjusted: 0, breakdown: [] }
     }
     
     // Use selected scope node, or fallback to root node, or fallback to first row, or zero-safe object
     const activeNode = scopeNode || 
-      rowData.find((r: any) => 
+      processedRows.find((r: any) => 
         r.node_name === 'Global Trading P&L' || 
         r.node_name === 'ROOT' ||
         r.depth === 0 ||
         !r.parent_node_id
       ) || 
-      rowData[0] || 
+      processedRows[0] || 
       { daily_pnl: 0, adjusted_daily: 0, node_name: 'Unknown', natural_value: { daily: 0 }, adjusted_value: { daily: 0 } }
     
     console.log('[EXECUTIVE DASHBOARD] Active Scope Node:', {
@@ -596,8 +706,8 @@ const ExecutiveDashboard: React.FC = () => {
       delta: (activeAdjusted - activeOriginal).toLocaleString()
     })
     
-    console.log('[EXECUTIVE DASHBOARD] Calculating attribution from', rowData.length, 'rows')
-    const result = calculateRuleAttribution(rowData, activeOriginal, activeAdjusted, activeNode?.node_name)
+    console.log('[EXECUTIVE DASHBOARD] Calculating attribution from', processedRows.length, 'rows')
+    const result = calculateRuleAttribution(processedRows, activeOriginal, activeAdjusted, activeNode?.node_name)
     console.log('[EXECUTIVE DASHBOARD] Attribution result:', {
       totalOriginal: result.totalOriginal,
       totalAdjusted: result.totalAdjusted,
@@ -605,7 +715,7 @@ const ExecutiveDashboard: React.FC = () => {
       breakdown: result.breakdown
     })
     return result
-  }, [rowData, scopeNode])
+  }, [processedRows, scopeNode])
   
   // Extract breakdown for components that expect array format
   const attributionData = attributionResult.breakdown
@@ -628,10 +738,10 @@ const ExecutiveDashboard: React.FC = () => {
   // Create list of key nodes for Analysis Scope dropdown
   // Filter to show only parent nodes (Key Nodes) to keep the list clean
   const keyNodes = useMemo(() => {
-    if (!rowData || rowData.length === 0) return []
+    if (!processedRows || processedRows.length === 0) return []
     
     // Key parent nodes (non-leaf nodes with children)
-    const parentNodes = rowData.filter((row: any) => {
+    const parentNodes = processedRows.filter((row: any) => {
       const hasChildren = Array.isArray(row.children) && row.children.length > 0
       const isExplicitParent = row.is_leaf === false || row.depth !== undefined
       const nodeName = row.node_name || ''
@@ -652,8 +762,8 @@ const ExecutiveDashboard: React.FC = () => {
     
     // If we have less than 50 total nodes, show all unique nodes
     // Otherwise, show only key parent nodes
-    if (rowData.length < 50) {
-      const uniqueNodes = Array.from(new Map(rowData.map((r: any) => [r.node_name, r])).values())
+    if (processedRows.length < 50) {
+      const uniqueNodes = Array.from(new Map(processedRows.map((r: any) => [r.node_name, r])).values())
       return uniqueNodes.sort((a: any, b: any) => {
         // Sort by depth first, then by name
         const depthA = a.depth || 0
@@ -669,16 +779,16 @@ const ExecutiveDashboard: React.FC = () => {
       if (depthA !== depthB) return depthA - depthB
       return (a.node_name || '').localeCompare(b.node_name || '')
     })
-  }, [rowData])
+  }, [processedRows])
 
   // Delta Mode Filtering: Show only rows with changes or parent nodes
   const displayRowData = useMemo(() => {
     if (viewMode !== 'delta') {
-      return rowData
+      return processedRows
     }
     
     // Filter to show only rows where abs(adjusted - original) > 0.01 OR is_parent = true
-    return rowData.filter((row: any) => {
+    return processedRows.filter((row: any) => {
       // Always show parent nodes
       if (row.is_parent === true) {
         return true
@@ -691,7 +801,7 @@ const ExecutiveDashboard: React.FC = () => {
       
       return delta > 0.01
     })
-  }, [rowData, viewMode])
+  }, [processedRows, viewMode])
 
   // AG-Grid Column Definitions (dynamic based on view mode and comparison mode)
   const getColumnDefs = (): ColDef[] => {
@@ -1331,11 +1441,18 @@ const ExecutiveDashboard: React.FC = () => {
                 style={{ minWidth: '250px', marginLeft: '8px' }}
               >
                 <option value="">Select a run...</option>
-                {runs.map(run => (
-                  <option key={run.id || run.run_id} value={run.id || run.run_id}>
-                    {run.run_name || run.version_tag || 'Run'} - {new Date(run.executed_at || run.run_timestamp || '').toLocaleString()}
-                  </option>
-                ))}
+                {/* DEDUPLICATION FIX: Create a unique Set of runs based on id/run_id to prevent duplicates */}
+                {Array.from(new Set(runs.map((run: any) => run.id || run.run_id).filter(Boolean)))
+                  .map(id => {
+                    const run = runs.find((r: any) => (r.id || r.run_id) === id)
+                    if (!run) return null
+                    return (
+                      <option key={id} value={id}>
+                        {run.run_name || run.version_tag || 'Run'} - {new Date(run.executed_at || run.run_timestamp || '').toLocaleString()}
+                      </option>
+                    )
+                  })
+                  .filter(Boolean)}
               </select>
             </>
           )}
@@ -1397,7 +1514,7 @@ const ExecutiveDashboard: React.FC = () => {
           <button
             className="export-button"
             onClick={handleExportReconciliation}
-            disabled={!selectedUseCaseId || rowData.length === 0}
+            disabled={!selectedUseCaseId || processedRows.length === 0}
           >
             Export Reconciliation
           </button>
@@ -1461,6 +1578,7 @@ const ExecutiveDashboard: React.FC = () => {
             onRowClicked={onRowClicked}
             treeData={true}
             getDataPath={(data) => data.path || []}
+            getRowId={(params) => params.data.node_id || params.data.id || params.data.node_name || `row-${params.rowIndex}`}
             groupDefaultExpanded={-1}
             animateRows={true}
             loading={loading}
@@ -1483,7 +1601,7 @@ const ExecutiveDashboard: React.FC = () => {
       </div>
 
       {/* Rule Attribution Analysis Table and Waterfall Chart */}
-      {rowData.length > 0 && (
+      {processedRows.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', marginTop: '2rem' }}>
           <h3 style={{ fontSize: '1.25rem', fontWeight: '600', color: '#1f2937', marginBottom: '0.5rem' }}>
             Adjustment Attribution Analysis
@@ -1492,7 +1610,7 @@ const ExecutiveDashboard: React.FC = () => {
           {/* Debug info (can be removed later) */}
           {process.env.NODE_ENV === 'development' && (
             <div style={{ padding: '0.5rem', backgroundColor: '#f3f4f6', borderRadius: '4px', fontSize: '0.875rem', color: '#6b7280' }}>
-              Debug: {rowData.length} rows, {attributionData.length} attribution items, Original: ${originalPnl.toLocaleString()}, Adjusted: ${adjustedPnl.toLocaleString()}
+              Debug: {processedRows.length} rows, {attributionData.length} attribution items, Original: ${originalPnl.toLocaleString()}, Adjusted: ${adjustedPnl.toLocaleString()}
             </div>
           )}
           
@@ -1529,7 +1647,7 @@ const ExecutiveDashboard: React.FC = () => {
                 }}
                 value={scopeNode?.node_name || ""}
                 onChange={(e) => {
-                  const node = rowData.find((n: any) => n.node_name === e.target.value)
+                  const node = processedRows.find((n: any) => n.node_name === e.target.value)
                   if (node) {
                     setScopeNode(node)
                     console.log('[EXECUTIVE DASHBOARD] Scope changed via dropdown to:', node.node_name)
@@ -1546,15 +1664,20 @@ const ExecutiveDashboard: React.FC = () => {
                 }}
               >
                 <option value="">-- Select Scope --</option>
-                {keyNodes.map((node: any) => {
-                  const depth = node.depth || 0
-                  const indent = '  '.repeat(depth) // Simple indentation for hierarchy
-                  return (
-                    <option key={node.node_id || node.node_name} value={node.node_name}>
-                      {indent}{node.node_name}
-                    </option>
-                  )
-                })}
+                {/* DEDUPLICATION FIX: Create a unique Set of nodes based on node_id to prevent duplicates */}
+                {Array.from(new Set(keyNodes.map((r: any) => r.node_id).filter(Boolean)))
+                  .map(id => {
+                    const node = keyNodes.find((r: any) => r.node_id === id)
+                    if (!node) return null
+                    const depth = node.depth || 0
+                    const indent = '  '.repeat(depth) // Simple indentation for hierarchy
+                    return (
+                      <option key={id} value={node.node_name}>
+                        {indent}{node.node_name}
+                      </option>
+                    )
+                  })
+                  .filter(Boolean)}
               </select>
               <span style={{ 
                 fontSize: '0.75rem', 
@@ -1572,8 +1695,8 @@ const ExecutiveDashboard: React.FC = () => {
               attributionData={attributionData}
               originalPnl={originalPnl}
               adjustedPnl={adjustedPnl}
-              rootNodeName={scopeNode?.node_name || 
-                rowData.find((r: any) => 
+                rootNodeName={scopeNode?.node_name || 
+                processedRows.find((r: any) => 
                   r.node_name === 'Global Trading P&L' || 
                   r.node_name === 'ROOT' ||
                   r.depth === 0 ||
@@ -1724,7 +1847,7 @@ const ExecutiveDashboard: React.FC = () => {
       {selectedRuleName && (
         <DrillDownModal
           ruleName={selectedRuleName}
-          rows={rowData}
+          rows={processedRows}
           onClose={() => setSelectedRuleName(null)}
         />
       )}
@@ -1735,7 +1858,7 @@ const ExecutiveDashboard: React.FC = () => {
           isOpen={!!selectedDrillRule}
           onClose={() => setSelectedDrillRule(null)}
           ruleName={selectedDrillRule}
-          allRows={rowData}
+          allRows={processedRows}
         />
       )}
     </div>

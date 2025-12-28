@@ -91,3 +91,16 @@ venv/
 ENV/
 env/
 
+# Backup and temporary files
+*_backup.py
+*backup.py
+requirements.txt#
+*.bak
+debug_*.py
+
+# Test execution plan scripts (temporary)
+test_execution_plan*.py
+
+# Log viewing scripts (may contain sensitive paths)
+view_backend_logs.ps1
+
