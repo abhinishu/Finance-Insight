@@ -2542,6 +2542,7 @@ const RuleEditor: React.FC = () => {
             rowSelection="multiple"
             treeData={true}
             getDataPath={(data) => data.path || []}
+            getRowId={(params) => params.data.node_id || params.data.id || params.data.node_name || `row-${params.rowIndex}`}
             groupDefaultExpanded={-1}  // Fully expanded on load (Power BI-like)
             animateRows={true}
             loading={loading}

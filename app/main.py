@@ -11,6 +11,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import admin, calculations, discovery, reports, rules, runs, use_cases
 from app.engine.translator import smoke_test_gemini
+from init_app import init_db
+from init_app import init_db
 
 # Load environment variables from .env file
 load_dotenv()
@@ -29,6 +31,14 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting Finance-Insight API...")
     logger.info("Phase 2: Hybrid Rule Engine initialized")
+    
+    # Initialize database schema on startup
+    try:
+        init_db()
+    except Exception as e:
+        logger.error(f"Database initialization failed: {e}")
+        # Don't raise - allow app to start even if schema check fails
+        # (useful for development when DB might not be available)
     
     # Run Gemini API smoke test
     try:

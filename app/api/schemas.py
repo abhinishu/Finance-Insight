@@ -386,6 +386,8 @@ class CalculationResponse(BaseModel):
     total_plug: Dict[str, str] = Field(..., description="Total reconciliation plug across all measures")
     duration_ms: int = Field(..., description="Calculation duration in milliseconds")
     message: str = Field(..., description="Summary message")
+    run_timestamp: Optional[str] = Field(None, description="When the calculation was run (ISO format)")
+    pnl_date: Optional[str] = Field(None, description="P&L date for this calculation (ISO format)")
     
     class Config:
         json_schema_extra = {
