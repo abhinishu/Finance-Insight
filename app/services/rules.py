@@ -158,7 +158,7 @@ def convert_json_to_sql(predicate_json: Dict[str, Any]) -> str:
             if not isinstance(value, list):
                 raise ValueError(f"Operator '{operator}' requires a list value")
             # Escape and quote string values
-            quoted_values = [f"'{str(v).replace("'", "''")}'" for v in value]
+            quoted_values = [f'\'{str(v).replace("'", "''")}\'' for v in value]
             sql_parts.append(f"{field} {sql_operator} ({', '.join(quoted_values)})")
         elif operator in ['equals', 'not_equals']:
             # String comparison - quote the value

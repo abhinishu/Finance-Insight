@@ -1,28 +1,28 @@
-"""
-Database configuration and session management for Finance-Insight.
-"""
-
+import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
-from sqlalchemy.pool import NullPool
+from dotenv import load_dotenv
 
-from app.models import Base
+load_dotenv()  # Load .env file
+
+# DEFAULT: Laptop Creds (Change these to match your local setup)
+DEFAULT_URL = "postgresql://postgres:password@localhost:5432/finance_insight"
+
+SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", DEFAULT_URL)
+
+engine = create_engine(SQLALCHEMY_DATABASE_URL, pool_pre_ping=True)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+# Note: Base is defined in app.models.py and imported from there by other modules
 
 
-# Database URL - will be loaded from environment variables
-DATABASE_URL = "postgresql://finance_user:finance_pass@localhost:5432/finance_insight"
-
-
+# Backward compatibility functions for existing code
 def get_database_url() -> str:
     """
     Get database URL from environment variables or use default.
     Format: postgresql://user:password@host:port/database
     """
-    import os
-    from dotenv import load_dotenv
-    
-    load_dotenv()
-    return os.getenv("DATABASE_URL", DATABASE_URL)
+    return os.getenv("DATABASE_URL", DEFAULT_URL)
 
 
 def create_db_engine(database_url: str = None):
@@ -38,47 +38,20 @@ def create_db_engine(database_url: str = None):
     if database_url is None:
         database_url = get_database_url()
     
-    engine = create_engine(
-        database_url,
-        poolclass=NullPool,  # Use NullPool for development; switch to QueuePool for production
-        echo=False,  # Set to True for SQL query logging
-        future=True,  # Use SQLAlchemy 2.0 style
-    )
-    return engine
+    return create_engine(database_url, pool_pre_ping=True)
 
 
-def get_session_factory(engine=None):
+def get_session_factory(engine_instance=None):
     """
     Create a session factory for database operations.
     
     Args:
-        engine: SQLAlchemy Engine instance. If None, creates a new one.
+        engine_instance: SQLAlchemy Engine instance. If None, uses the global engine.
     
     Returns:
         SessionMaker instance
     """
-    if engine is None:
-        engine = create_db_engine()
+    if engine_instance is None:
+        engine_instance = engine
     
-    return sessionmaker(bind=engine, class_=Session, expire_on_commit=False)
-
-
-def init_db(engine=None):
-    """
-    Initialize database by creating all tables.
-    This should be called once during setup.
-    
-    Args:
-        engine: SQLAlchemy Engine instance. If None, creates a new one.
-    """
-    if engine is None:
-        engine = create_db_engine()
-    
-    Base.metadata.create_all(engine)
-    print("Database tables created successfully.")
-
-
-if __name__ == "__main__":
-    # Allow running this file directly to initialize the database
-    init_db()
-
+    return sessionmaker(autocommit=False, autoflush=False, bind=engine_instance)

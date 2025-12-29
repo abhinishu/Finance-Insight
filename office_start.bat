@@ -1,10 +1,8 @@
 @echo off
-echo ========================================
-echo FINANCE INSIGHT - OFFICE DEPLOYMENT
-echo ========================================
+echo === FINANCE INSIGHT: DIGITAL TWIN LAUNCHER ===
 echo.
 
-echo [1/5] Pulling latest code from main branch...
+echo [1/4] Pulling latest code from main branch...
 git pull origin main
 if %errorlevel% neq 0 (
     echo ERROR: Failed to pull from git repository
@@ -13,17 +11,8 @@ if %errorlevel% neq 0 (
 )
 echo.
 
-echo [2/5] Checking for existing database...
-if exist finance_insight.db (
-    del finance_insight.db
-    echo Old database deleted. Starting fresh.
-) else (
-    echo No existing database found.
-)
-echo.
-
-echo [3/5] Checking for virtual environment...
-if not exist .venv (
+echo [2/4] Checking for virtual environment...
+if not exist ".venv" (
     echo Creating virtual environment...
     python -m venv .venv
     if %errorlevel% neq 0 (
@@ -36,7 +25,7 @@ if not exist .venv (
 )
 echo.
 
-echo [4/5] Activating virtual environment and installing dependencies...
+echo [3/4] Activating virtual environment and installing dependencies...
 call .venv\Scripts\activate
 if %errorlevel% neq 0 (
     echo ERROR: Failed to activate virtual environment
@@ -52,7 +41,20 @@ if %errorlevel% neq 0 (
 )
 echo.
 
-echo [5/5] Starting backend server...
+echo [4/4] Configuration check...
+:: CONFIGURATION CHECK
+if not exist ".env" (
+    echo [SETUP] No configuration found. Let's connect to Office Postgres.
+    set /p DB_USER=Enter Office Postgres Username (e.g. postgres): 
+    set /p DB_PASS=Enter Office Postgres Password: 
+    echo DATABASE_URL=postgresql://%DB_USER%:%DB_PASS%@localhost:5432/finance_insight > .env
+    echo [SETUP] Configuration saved to .env
+) else (
+    echo [SETUP] Using existing .env configuration.
+)
+echo.
+
+echo [LAUNCH] Starting System...
 echo ========================================
 uvicorn app.main:app --reload
 if %errorlevel% neq 0 (
@@ -62,4 +64,3 @@ if %errorlevel% neq 0 (
 
 echo.
 pause
-
