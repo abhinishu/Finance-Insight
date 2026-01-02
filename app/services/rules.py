@@ -4,6 +4,7 @@ Handles both Manual (dropdown) and GenAI (natural language) rule creation.
 """
 
 import logging
+from decimal import Decimal
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -86,9 +87,11 @@ def validate_conditions(conditions: List[RuleCondition]) -> List[str]:
                 )
         elif condition.operator in ['greater_than', 'less_than']:
             # For numeric comparisons, value should be numeric
-            if not isinstance(condition.value, (int, float)):
+            # CRITICAL: Prefer Decimal for financial values, but accept float/int for validation
+            if not isinstance(condition.value, (int, float, Decimal)):
                 try:
-                    float(condition.value)
+                    # Try to convert to Decimal first (maintains precision)
+                    Decimal(str(condition.value))
                 except (ValueError, TypeError):
                     errors.append(
                         f"Condition {idx + 1}: Operator '{condition.operator}' requires a numeric value"
@@ -269,6 +272,20 @@ def create_manual_rule(
         MetadataRule.node_id == rule_data.node_id
     ).first()
     
+    # Phase 5.1: Validate rule type requirements
+    rule_type = rule_data.rule_type or 'FILTER'
+    measure_name = rule_data.measure_name or 'daily_pnl'
+    
+    # Validation: Type 3 (NODE_ARITHMETIC) requires rule_expression
+    if rule_type == 'NODE_ARITHMETIC':
+        if not rule_data.rule_expression:
+            raise ValueError("rule_expression is required for NODE_ARITHMETIC rule type")
+    
+    # Validation: FILTER and FILTER_ARITHMETIC require predicate_json
+    if rule_type in ('FILTER', 'FILTER_ARITHMETIC'):
+        if not predicate_json:
+            raise ValueError(f"predicate_json is required for {rule_type} rule type")
+    
     if existing_rule:
         # Update existing rule
         logger.info(f"Updating existing rule {existing_rule.rule_id} for node {rule_data.node_id}")
@@ -276,6 +293,11 @@ def create_manual_rule(
         existing_rule.sql_where = sql_where
         existing_rule.logic_en = logic_en
         existing_rule.last_modified_by = rule_data.last_modified_by
+        # Phase 5.1: Update new fields
+        existing_rule.rule_type = rule_type
+        existing_rule.measure_name = measure_name
+        existing_rule.rule_expression = rule_data.rule_expression
+        existing_rule.rule_dependencies = rule_data.rule_dependencies if rule_data.rule_dependencies else None
         session.commit()
         session.refresh(existing_rule)
         return existing_rule
@@ -288,7 +310,12 @@ def create_manual_rule(
             predicate_json=predicate_json,
             sql_where=sql_where,
             logic_en=logic_en,
-            last_modified_by=rule_data.last_modified_by
+            last_modified_by=rule_data.last_modified_by,
+            # Phase 5.1: New fields
+            rule_type=rule_type,
+            measure_name=measure_name,
+            rule_expression=rule_data.rule_expression,
+            rule_dependencies=rule_data.rule_dependencies if rule_data.rule_dependencies else None
         )
         session.add(new_rule)
         session.commit()

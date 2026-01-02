@@ -4,6 +4,11 @@
 - **The Golden Equation**: Always ensure that `Natural GL Baseline = Adjusted P&L + Reconciliation Plug`.
 - **Waterfall Logic**: Calculations must be "Bottom-Up." Parent nodes must always sum the `Adjusted P&L` values of their direct children.
 - **Precision**: All financial calculations must use the `Decimal` type (not float) to avoid rounding errors.
+  - **MANDATORY**: Use `from decimal import Decimal` for all financial values (PnL, amounts, measures)
+  - **FORBIDDEN**: Never use `float()` in calculation paths, aggregation, or arithmetic operations
+  - **EXCEPTION**: Converting Decimal to float is ONLY allowed at API boundaries (JSON serialization) or JSONB storage, with explicit comments explaining why
+  - **Database**: Use `Numeric(18, 2)` in SQLAlchemy models, never `Float`
+  - **Conversion Pattern**: `Decimal(str(value))` when loading from DB, `round(float(decimal_value), 4)` only for JSONB storage
 
 ## 2. Logic Abstraction (GenAI Safety)
 - **The "Glass Box" Pattern**: Never allow Gemini to generate raw SQL directly. 

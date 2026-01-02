@@ -19,6 +19,7 @@ from app.models import (
     FactCalculatedResult,
     FactPnlGold,
     FactPnlEntries,
+    FactPnlUseCase3,
     MetadataRule,
     UseCase,
     UseCaseRun,
@@ -187,6 +188,72 @@ def load_facts_from_entries(session: Session, use_case_id: Optional[UUID] = None
         df['daily_pnl'] = df['daily_pnl'].apply(lambda x: Decimal(str(x)))
         df['mtd_pnl'] = df['mtd_pnl'].apply(lambda x: Decimal(str(x)))
         df['ytd_pnl'] = df['ytd_pnl'].apply(lambda x: Decimal(str(x)))
+    
+    return df
+
+
+def load_facts_from_use_case_3(session: Session, use_case_id: Optional[UUID] = None) -> pd.DataFrame:
+    """
+    Phase 5.1: Load fact data from fact_pnl_use_case_3 table.
+    
+    CRITICAL: Loads ALL PnL columns (pnl_daily, pnl_commission, pnl_trade) for multiple measures support.
+    All amounts use Decimal type for precision.
+    
+    Args:
+        session: SQLAlchemy session
+        use_case_id: Optional use case ID (for logging)
+    
+    Returns:
+        Pandas DataFrame with all fact rows, using Decimal for numeric columns
+        Columns: effective_date, strategy, process_2, product_line, pnl_daily, pnl_commission, pnl_trade
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    # Load all rows from fact_pnl_use_case_3
+    facts = session.query(FactPnlUseCase3).all()
+    
+    logger.info(f"load_facts_from_use_case_3: Loaded {len(facts)} rows from fact_pnl_use_case_3")
+    
+    # Convert to DataFrame with ALL PnL columns
+    data = []
+    for fact in facts:
+        data.append({
+            'entry_id': fact.entry_id,
+            'effective_date': fact.effective_date,
+            'cost_center': fact.cost_center,
+            'division': fact.division,
+            'business_area': fact.business_area,
+            'product_line': fact.product_line,
+            'strategy': fact.strategy,
+            'process_1': fact.process_1,
+            'process_2': fact.process_2,
+            'book': fact.book,
+            # CRITICAL: Load ALL PnL columns (for multiple measures support)
+            'pnl_daily': Decimal(str(fact.pnl_daily)),
+            'pnl_commission': Decimal(str(fact.pnl_commission)),
+            'pnl_trade': Decimal(str(fact.pnl_trade)),
+            # Map to standard names for compatibility (daily_pnl = pnl_daily for backward compatibility)
+            'daily_pnl': Decimal(str(fact.pnl_daily)),
+            'mtd_pnl': Decimal('0'),  # Not available in fact_pnl_use_case_3
+            'ytd_pnl': Decimal('0'),  # Not available in fact_pnl_use_case_3
+            'pytd_pnl': Decimal('0'),  # Not available in fact_pnl_use_case_3
+        })
+    
+    df = pd.DataFrame(data)
+    
+    # Ensure Decimal types are preserved
+    if not df.empty:
+        df['pnl_daily'] = df['pnl_daily'].apply(lambda x: Decimal(str(x)))
+        df['pnl_commission'] = df['pnl_commission'].apply(lambda x: Decimal(str(x)))
+        df['pnl_trade'] = df['pnl_trade'].apply(lambda x: Decimal(str(x)))
+        df['daily_pnl'] = df['daily_pnl'].apply(lambda x: Decimal(str(x)))
+        
+        logger.info(f"load_facts_from_use_case_3: DataFrame created with {len(df)} rows")
+        logger.info(f"load_facts_from_use_case_3: Columns: {list(df.columns)}")
+        logger.info(f"load_facts_from_use_case_3: Sample pnl_daily sum: {df['pnl_daily'].sum()}")
+        logger.info(f"load_facts_from_use_case_3: Sample pnl_commission sum: {df['pnl_commission'].sum()}")
+        logger.info(f"load_facts_from_use_case_3: Sample pnl_trade sum: {df['pnl_trade'].sum()}")
     
     return df
 
@@ -368,6 +435,7 @@ def load_rules(session: Session, use_case_id: UUID) -> Dict[str, MetadataRule]:
     logger = logging.getLogger(__name__)
     
     # RAW SQL RULES LOAD (Ignoring Structure ID to find "Orphaned" Rules)
+    # Phase 5.1: Include new columns (rule_type, measure_name, rule_expression, rule_dependencies)
     sql_rules = text("""
         SELECT 
             rule_id, 
@@ -377,7 +445,11 @@ def load_rules(session: Session, use_case_id: UUID) -> Dict[str, MetadataRule]:
             logic_en,
             last_modified_by,
             created_at,
-            last_modified_at
+            last_modified_at,
+            rule_type,
+            measure_name,
+            rule_expression,
+            rule_dependencies
         FROM metadata_rules
         WHERE use_case_id = :uc_id
     """)
@@ -401,6 +473,11 @@ def load_rules(session: Session, use_case_id: UUID) -> Dict[str, MetadataRule]:
             rule.rule_id = r[0]
             rule.created_at = r[6] if r[6] else None
             rule.last_modified_at = r[7] if r[7] else None
+            # Phase 5.1: Set new columns
+            rule.rule_type = r[8] if len(r) > 8 and r[8] else 'FILTER'
+            rule.measure_name = r[9] if len(r) > 9 and r[9] else 'daily_pnl'
+            rule.rule_expression = r[10] if len(r) > 10 and r[10] else None
+            rule.rule_dependencies = r[11] if len(r) > 11 and r[11] else None
             
             active_rules[rule.node_id] = rule
         
@@ -417,9 +494,48 @@ def load_rules(session: Session, use_case_id: UUID) -> Dict[str, MetadataRule]:
         return {rule.node_id: rule for rule in rules}
 
 
-def apply_rule_override(session: Session, facts_df: pd.DataFrame, rule: MetadataRule) -> Dict[str, Decimal]:
+def get_measure_column_name(measure_name: Optional[str], table_name: str) -> str:
+    """
+    Phase 5.4: Map measure_name to actual database column name.
+    
+    Args:
+        measure_name: Measure name from rule (e.g., 'daily_pnl', 'daily_commission', 'daily_trade')
+        table_name: Table name to determine column mapping
+    
+    Returns:
+        Actual column name in the database table
+    """
+    if not measure_name:
+        return 'daily_pnl'  # Default
+    
+    # Map measure_name to column names based on table
+    if table_name == 'fact_pnl_use_case_3':
+        # Use Case 3 specific mapping
+        mapping = {
+            'daily_pnl': 'pnl_daily',
+            'daily_commission': 'pnl_commission',
+            'daily_trade': 'pnl_trade',
+        }
+        return mapping.get(measure_name, 'pnl_daily')  # Default to pnl_daily
+    elif table_name == 'fact_pnl_entries':
+        # fact_pnl_entries uses daily_amount, wtd_amount, ytd_amount
+        mapping = {
+            'daily_pnl': 'daily_amount',
+            'daily_commission': 'daily_amount',  # Not available, fallback to daily_amount
+            'daily_trade': 'daily_amount',  # Not available, fallback to daily_amount
+        }
+        return mapping.get(measure_name, 'daily_amount')
+    else:
+        # fact_pnl_gold uses daily_pnl, mtd_pnl, ytd_pnl
+        return measure_name  # Use as-is for fact_pnl_gold
+
+
+def apply_rule_override(session: Session, facts_df: pd.DataFrame, rule: MetadataRule, use_case: Optional[UseCase] = None) -> Dict[str, Decimal]:
     """
     Apply a rule override by executing SQL WHERE clause on facts.
+    
+    Phase 5.4: Updated to support multiple measures via rule.measure_name.
+    Phase 5.5: Updated to support Type 2B (FILTER_ARITHMETIC) rules.
     
     Note: For Sterling Python rules, this function may not be called since rules
     are applied via Python logic. However, for SQL-based rules, we need to handle
@@ -428,11 +544,70 @@ def apply_rule_override(session: Session, facts_df: pd.DataFrame, rule: Metadata
     Args:
         session: SQLAlchemy session (for executing SQL)
         facts_df: DataFrame with fact data
-        rule: MetadataRule object with sql_where clause
+        rule: MetadataRule object with sql_where clause and measure_name
+        use_case: Optional UseCase object to determine input table
     
     Returns:
         Dictionary {daily: Decimal, mtd: Decimal, ytd: Decimal, pytd: Decimal}
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    # Phase 5.5: Check if this is a Type 2B rule
+    rule_type = rule.rule_type or 'FILTER'
+    if rule_type == 'FILTER_ARITHMETIC':
+        # Execute Type 2B rule using DataFrame operations
+        from app.engine.type2b_processor import execute_type_2b_rule
+        
+        # Determine table name
+        table_name = 'fact_pnl_gold'  # Default
+        if use_case and use_case.input_table_name:
+            table_name = use_case.input_table_name
+        elif 'pnl_commission' in facts_df.columns or 'pnl_trade' in facts_df.columns:
+            table_name = 'fact_pnl_use_case_3'
+        elif 'daily_amount' in facts_df.columns:
+            table_name = 'fact_pnl_entries'
+        
+        logger.info(f"apply_rule_override: Executing Type 2B rule for node {rule.node_id}, table={table_name}")
+        
+        try:
+            # Execute Type 2B rule
+            result_value = execute_type_2b_rule(facts_df, rule, table_name)
+            
+            # Return in standard format (Type 2B only returns 'daily' for now)
+            return {
+                'daily': result_value,
+                'mtd': Decimal('0'),  # Not available for Type 2B
+                'ytd': Decimal('0'),  # Not available for Type 2B
+                'pytd': Decimal('0'),
+            }
+        except Exception as e:
+            logger.error(f"Error executing Type 2B rule for node {rule.node_id}: {e}", exc_info=True)
+            return {
+                'daily': Decimal('0'),
+                'mtd': Decimal('0'),
+                'ytd': Decimal('0'),
+                'pytd': Decimal('0'),
+            }
+    
+    # Phase 5.4: Determine target measure column (for Type 1/2 rules)
+    measure_name = rule.measure_name or 'daily_pnl'  # Default to daily_pnl
+    
+    # Determine which table to use
+    table_name = 'fact_pnl_gold'  # Default
+    if use_case and use_case.input_table_name:
+        table_name = use_case.input_table_name
+    elif 'pnl_commission' in facts_df.columns or 'pnl_trade' in facts_df.columns:
+        # Detect fact_pnl_use_case_3 by presence of pnl_commission or pnl_trade
+        table_name = 'fact_pnl_use_case_3'
+    elif 'daily_amount' in facts_df.columns:
+        table_name = 'fact_pnl_entries'
+    
+    # Get actual column name for the measure
+    target_column = get_measure_column_name(measure_name, table_name)
+    
+    logger.info(f"apply_rule_override: Node {rule.node_id}, measure_name={measure_name}, table={table_name}, target_column={target_column}")
+    
     if not rule.sql_where:
         # No SQL WHERE clause - return zeros
         return {
@@ -442,19 +617,24 @@ def apply_rule_override(session: Session, facts_df: pd.DataFrame, rule: Metadata
             'pytd': Decimal('0'),
         }
     
-    # Try to execute SQL WHERE clause on fact_pnl_entries table
-    # Note: sql_where may reference fact_pnl_entries columns (daily_amount, wtd_amount, ytd_amount)
-    # or fact_pnl_gold columns (daily_pnl, mtd_pnl, ytd_pnl)
-    # We'll try fact_pnl_entries first (for Sterling compatibility)
+    # Try to execute SQL WHERE clause on the appropriate table
     try:
-        # Check if sql_where references fact_pnl_entries or fact_pnl_gold
         sql_where = rule.sql_where.strip()
         
-        # If sql_where references fact_pnl_entries, use that table
-        if 'fact_pnl_entries' in sql_where or 'fpe' in sql_where:
+        # Phase 5.4: Use target_column instead of hardcoded daily_pnl
+        if table_name == 'fact_pnl_use_case_3':
+            # Use Case 3: fact_pnl_use_case_3 table
             sql_query = f"""
                 SELECT 
-                    COALESCE(SUM(daily_amount), 0) as daily_amount,
+                    COALESCE(SUM({target_column}), 0) as measure_value
+                FROM fact_pnl_use_case_3
+                WHERE {sql_where}
+            """
+        elif table_name == 'fact_pnl_entries':
+            # fact_pnl_entries table
+            sql_query = f"""
+                SELECT 
+                    COALESCE(SUM({target_column}), 0) as daily_amount,
                     COALESCE(SUM(wtd_amount), 0) as wtd_amount,
                     COALESCE(SUM(ytd_amount), 0) as ytd_amount,
                     0 as pytd_amount
@@ -465,7 +645,7 @@ def apply_rule_override(session: Session, facts_df: pd.DataFrame, rule: Metadata
             # Default to fact_pnl_gold for legacy rules
             sql_query = f"""
                 SELECT 
-                    COALESCE(SUM(daily_pnl), 0) as daily_pnl,
+                    COALESCE(SUM({target_column}), 0) as daily_pnl,
                     COALESCE(SUM(mtd_pnl), 0) as mtd_pnl,
                     COALESCE(SUM(ytd_pnl), 0) as ytd_pnl,
                     COALESCE(SUM(pytd_pnl), 0) as pytd_pnl
@@ -476,8 +656,17 @@ def apply_rule_override(session: Session, facts_df: pd.DataFrame, rule: Metadata
         result = session.execute(text(sql_query)).fetchone()
         
         if result and result[0] is not None:
-            # Map columns based on which table was used
-            if 'fact_pnl_entries' in sql_where or 'fpe' in sql_where:
+            # Phase 5.4: For Use Case 3, we only get one value (the target measure)
+            if table_name == 'fact_pnl_use_case_3':
+                measure_value = Decimal(str(result[0] or 0))
+                # Return the measure value in 'daily' slot (for now, other measures are zero)
+                return {
+                    'daily': measure_value,
+                    'mtd': Decimal('0'),  # Not available in fact_pnl_use_case_3
+                    'ytd': Decimal('0'),  # Not available in fact_pnl_use_case_3
+                    'pytd': Decimal('0'),
+                }
+            elif table_name == 'fact_pnl_entries':
                 return {
                     'daily': Decimal(str(result[0] or 0)),
                     'mtd': Decimal(str(result[1] or 0)),  # wtd_amount maps to mtd
@@ -504,16 +693,11 @@ def apply_rule_override(session: Session, facts_df: pd.DataFrame, rule: Metadata
         try:
             session.rollback()
         except Exception as rollback_error:
-            # If rollback fails, log but don't raise (we're already in error handling)
-            import logging
-            logger = logging.getLogger(__name__)
             logger.warning(f"apply_rule_override: Failed to rollback after SQL error: {rollback_error}")
         
         # If SQL execution fails, return zeros (this is expected for Sterling Python rules)
         # Only log warning if sql_where exists and looks valid
         if rule.sql_where and rule.sql_where.strip() and rule.sql_where.strip() != '1=1':
-            import logging
-            logger = logging.getLogger(__name__)
             logger.warning(f"apply_rule_override: Rule execution failed for node {rule.node_id}: {e}")
         return {
             'daily': Decimal('0'),
@@ -537,11 +721,18 @@ def calculate_waterfall(use_case_id: UUID, session: Session, triggered_by: str =
     """
     start_time = time.time()
     
+    # Phase 5.4: Get use_case for table detection (needed early for fact loading)
+    use_case = session.query(UseCase).filter(UseCase.use_case_id == use_case_id).first()
+    
     # Step 1: Load hierarchy
     hierarchy_dict, children_dict, leaf_nodes = load_hierarchy(session, use_case_id)
     
     # Step 2: Load facts
-    facts_df = load_facts(session)
+    # Phase 5.5: For Use Case 3, load from fact_pnl_use_case_3 if needed
+    if use_case and use_case.input_table_name == 'fact_pnl_use_case_3':
+        facts_df = load_facts_from_use_case_3(session, use_case_id)
+    else:
+        facts_df = load_facts(session)
     
     # Step 3: Calculate natural rollups (bottom-up)
     natural_results = calculate_natural_rollup(hierarchy_dict, children_dict, leaf_nodes, facts_df)
@@ -562,7 +753,7 @@ def calculate_waterfall(use_case_id: UUID, session: Session, triggered_by: str =
             if node.depth == depth and node_id in rules_dict:
                 # Apply rule override
                 rule = rules_dict[node_id]
-                override_values = apply_rule_override(session, facts_df, rule)
+                override_values = apply_rule_override(session, facts_df, rule, use_case)
                 final_results[node_id] = override_values
                 override_nodes.add(node_id)
     

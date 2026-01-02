@@ -47,6 +47,8 @@ class RunStatus(str, PyEnum):
 class UseCase(Base):
     """
     Core use case table - each use case is an isolated sandbox.
+    
+    Phase 5.1: Added input_table_name to support table-per-use-case strategy.
     """
     __tablename__ = "use_cases"
 
@@ -57,6 +59,9 @@ class UseCase(Base):
     atlas_structure_id = Column(String, nullable=False)  # Reference to Atlas tree
     status = Column(Enum(UseCaseStatus), nullable=False, default=UseCaseStatus.DRAFT)
     created_at = Column(TIMESTAMP, nullable=False, server_default=func.now())
+    
+    # Phase 5.1: Table-per-use-case strategy
+    input_table_name = Column(String(100), nullable=True)  # NULL = use default fact_pnl_gold
 
     # Relationships
     rules = relationship("MetadataRule", back_populates="use_case", cascade="all, delete-orphan")
@@ -64,7 +69,7 @@ class UseCase(Base):
     snapshots = relationship("HistorySnapshot", back_populates="use_case", cascade="all, delete-orphan")
 
     def __repr__(self):
-        return f"<UseCase(id={self.use_case_id}, name='{self.name}', status={self.status})>"
+        return f"<UseCase(id={self.use_case_id}, name='{self.name}', status={self.status}, input_table='{self.input_table_name}')>"
 
 
 class UseCaseRun(Base):
@@ -148,6 +153,11 @@ class MetadataRule(Base):
     """
     Business rules - override logic for specific nodes in a use case.
     Only one rule per node per use case (enforced by unique constraint).
+    
+    Phase 5.1: Added support for multiple rule types:
+    - FILTER: Type 1/2 (simple/multi-condition filtering)
+    - FILTER_ARITHMETIC: Type 2B (arithmetic of multiple queries)
+    - NODE_ARITHMETIC: Type 3 (node arithmetic operations)
     """
     __tablename__ = "metadata_rules"
 
@@ -160,6 +170,12 @@ class MetadataRule(Base):
     last_modified_by = Column(String, nullable=False)
     created_at = Column(TIMESTAMP, nullable=False, server_default=func.now())
     last_modified_at = Column(TIMESTAMP, nullable=False, server_default=func.now(), onupdate=func.now())
+    
+    # Phase 5.1: New columns for rule type system
+    rule_type = Column(String(20), nullable=True, default='FILTER')  # FILTER, FILTER_ARITHMETIC, NODE_ARITHMETIC
+    measure_name = Column(String(50), nullable=True, default='daily_pnl')  # Measure name for rule execution
+    rule_expression = Column(Text, nullable=True)  # Arithmetic expression for Type 3 rules (e.g., "NODE_3 - NODE_4")
+    rule_dependencies = Column(JSONB, nullable=True)  # JSON array of node IDs this rule depends on (for Type 3)
 
     # Relationships
     use_case = relationship("UseCase", back_populates="rules")
@@ -171,7 +187,7 @@ class MetadataRule(Base):
     )
 
     def __repr__(self):
-        return f"<MetadataRule(id={self.rule_id}, use_case={self.use_case_id}, node='{self.node_id}')>"
+        return f"<MetadataRule(id={self.rule_id}, use_case={self.use_case_id}, node='{self.node_id}', type='{self.rule_type}')>"
 
 
 class FactPnlGold(Base):
@@ -291,6 +307,38 @@ class FactPnlEntries(Base):
 
     def __repr__(self):
         return f"<FactPnlEntries(id={self.id}, use_case={self.use_case_id}, date={self.pnl_date}, scenario={self.scenario})>"
+
+
+class FactPnlUseCase3(Base):
+    """
+    Phase 5.1: Dedicated fact table for Use Case 3 (America Cash Equity Trading).
+    All PnL columns use NUMERIC(18,2) for Decimal precision (never FLOAT).
+    """
+    __tablename__ = "fact_pnl_use_case_3"
+
+    entry_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    effective_date = Column(Date, nullable=False)
+    
+    # Hierarchical Dimensions
+    cost_center = Column(String(50), nullable=True)
+    division = Column(String(50), nullable=True)
+    business_area = Column(String(100), nullable=True)
+    product_line = Column(String(100), nullable=True)
+    strategy = Column(String(100), nullable=True)
+    process_1 = Column(String(100), nullable=True)
+    process_2 = Column(String(100), nullable=True)
+    book = Column(String(100), nullable=True)
+    
+    # Financial Measures (CRITICAL: NUMERIC(18,2) for Decimal precision)
+    pnl_daily = Column(Numeric(18, 2), nullable=False, default=0)
+    pnl_commission = Column(Numeric(18, 2), nullable=False, default=0)
+    pnl_trade = Column(Numeric(18, 2), nullable=False, default=0)
+    
+    # Audit Fields
+    created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+
+    def __repr__(self):
+        return f"<FactPnlUseCase3(id={self.entry_id}, date={self.effective_date}, strategy='{self.strategy}')>"
 
 
 class CalculationRun(Base):

@@ -137,6 +137,8 @@ class RuleCreate(BaseModel):
     Supports two modes:
     1. Manual: Provide list of RuleCondition objects
     2. GenAI: Provide logic_en (natural language) - will be implemented later
+    
+    Phase 5.1: Added support for rule types and measures.
     """
     node_id: str = Field(..., description="Node ID from dim_hierarchy where rule applies")
     last_modified_by: str = Field(..., min_length=1, description="User ID who created/modified the rule")
@@ -149,6 +151,12 @@ class RuleCreate(BaseModel):
     
     # Direct SQL mode (advanced, for testing)
     sql_where: Optional[str] = Field(None, description="Direct SQL WHERE clause (bypasses validation - use with caution)")
+    
+    # Phase 5.1: New fields for rule type system
+    rule_type: Optional[str] = Field(None, description="Rule type: FILTER, FILTER_ARITHMETIC, NODE_ARITHMETIC (default: FILTER)")
+    measure_name: Optional[str] = Field(None, description="Measure name for rule execution (e.g., daily_pnl, daily_commission, daily_trade)")
+    rule_expression: Optional[str] = Field(None, description="Arithmetic expression for Type 3 rules (e.g., 'NODE_3 - NODE_4')")
+    rule_dependencies: Optional[List[str]] = Field(None, description="List of node IDs this rule depends on (for Type 3 rules)")
 
     def model_post_init(self, __context):
         """Validate that exactly one mode is provided."""
@@ -191,6 +199,8 @@ class RuleResponse(BaseModel):
     2. predicate_json: Intermediate JSON predicate
     3. sql_where: Final SQL WHERE clause
     
+    Phase 5.1: Added rule type system fields.
+    
     Note: All fields are Optional to support Phase 1 reports that don't have rules yet.
     """
     rule_id: int
@@ -203,6 +213,12 @@ class RuleResponse(BaseModel):
     last_modified_by: str
     created_at: str
     last_modified_at: str
+    
+    # Phase 5.1: New fields for rule type system
+    rule_type: Optional[str] = Field(None, description="Rule type: FILTER, FILTER_ARITHMETIC, NODE_ARITHMETIC")
+    measure_name: Optional[str] = Field(None, description="Measure name for rule execution")
+    rule_expression: Optional[str] = Field(None, description="Arithmetic expression for Type 3 rules")
+    rule_dependencies: Optional[List[str]] = Field(None, description="List of node IDs this rule depends on")
 
     class Config:
         json_schema_extra = {
