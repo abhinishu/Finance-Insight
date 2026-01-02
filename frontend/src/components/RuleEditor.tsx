@@ -8,6 +8,14 @@ import 'ag-grid-community/styles/ag-grid.css'
 import 'ag-grid-community/styles/ag-theme-alpine.css'
 import './RuleEditor.css'
 
+// Phase 5: Measure Labels Map for Multi-Measure Rules
+const MEASURE_LABELS: Record<string, string> = {
+  'daily_pnl': 'Daily P&L',
+  'pnl_commission': 'Commission P&L',
+  'pnl_trade': 'Trade P&L',
+  'ytd_pnl': 'YTD P&L'
+}
+
 // Rich Tooltip Component for Business Rule Badge (shared with ExecutiveDashboard)
 const RichTooltip: React.FC<{ 
   ruleName: string
@@ -386,6 +394,26 @@ interface RulePreview {
   errors?: string[]
 }
 
+// Phase 5.7: Rule interface for TypeScript type safety
+interface Rule {
+  rule_id?: number
+  node_id?: string
+  node_name?: string
+  rule_type?: string | null
+  rule_expression?: string | null
+  rule_dependencies?: string[] | null
+  logic_en?: string | null
+  sql_where?: string | null
+  predicate_json?: any
+  last_modified_by?: string
+  created_at?: string
+  last_modified_at?: string
+  affected_rows?: number
+  total_rows?: number
+  percentage?: number
+  estimatedImpact?: number
+}
+
 const RuleEditor: React.FC = () => {
   // Use ReportingContext for globalTotal
   const { globalTotal } = useReportingContext()
@@ -434,6 +462,9 @@ const RuleEditor: React.FC = () => {
   // AI Mode State
   const [aiPrompt, setAiPrompt] = useState<string>('')
   const aiPromptRef = useRef<HTMLTextAreaElement>(null)
+  
+  // Phase 5.7: Math Formula Textarea Ref (for cursor position tracking)
+  const mathFormulaRef = useRef<HTMLTextAreaElement>(null)
   const [generating, setGenerating] = useState<boolean>(false)
   const [lastGenerateTime, setLastGenerateTime] = useState<number>(0)
   const [generateCooldown, setGenerateCooldown] = useState<number>(0) // Seconds remaining
@@ -442,6 +473,15 @@ const RuleEditor: React.FC = () => {
   const [conditions, setConditions] = useState<RuleCondition[]>([
     { field: '', operator: 'equals', value: '' }
   ])
+  
+  // Phase 5.7: Rule Type Selector (Standard Mode only)
+  const [standardRuleType, setStandardRuleType] = useState<'filter' | 'math'>('filter')
+  
+  // Phase 5.7: Math Formula State
+  const [mathFormula, setMathFormula] = useState<string>('')
+  
+  // Phase 5: Target Metric Selector (Standard Mode - Filter only)
+  const [selectedMeasure, setSelectedMeasure] = useState<string>('daily_pnl')
 
   // Rule Preview
   const [rulePreview, setRulePreview] = useState<RulePreview | null>(null)
@@ -540,12 +580,29 @@ const RuleEditor: React.FC = () => {
             
             // Load impact for each rule
             for (const rule of rulesList) {
-              if (rule.node_id && rule.sql_where) {
+              if (!rule.node_id) continue
+              
+              // Phase 5.7: Handle Math Rules (NODE_ARITHMETIC) differently
+              if (rule.rule_type === 'NODE_ARITHMETIC') {
+                // Math rules don't have sql_where, so skip impact preview
+                // They use rule_expression instead
+                rulesMap.set(rule.node_id, {
+                  ...rule,
+                  affected_rows: 0, // Math rules don't have row-based impact
+                  total_rows: 0,
+                  percentage: 0,
+                  estimatedImpact: 0 // Could calculate from formula if needed
+                })
+                continue
+              }
+              
+              // Standard SQL-based rules: get impact preview
+              if (rule.sql_where) {
                 try {
                   // Get impact preview
                   const previewResponse = await axios.post(
                     `${API_BASE_URL}/api/v1/rules/preview`,
-                    { sql_where: rule.sql_where }
+                    { sql_where: rule.sql_where, use_case_id: selectedUseCaseId }
                   )
                   
                   // Estimate P&L impact (simplified: use affected_rows * average daily_pnl)
@@ -572,6 +629,15 @@ const RuleEditor: React.FC = () => {
                     estimatedImpact: 0
                   })
                 }
+              } else {
+                // Rule without sql_where (shouldn't happen for non-math rules, but handle gracefully)
+                rulesMap.set(rule.node_id, {
+                  ...rule,
+                  affected_rows: 0,
+                  total_rows: 0,
+                  percentage: 0,
+                  estimatedImpact: 0
+                })
               }
             }
             
@@ -1363,13 +1429,84 @@ const RuleEditor: React.FC = () => {
     )
   }
 
+  // Phase 5.7: Helper function to determine if a rule is a Math Rule
+  const isMathRule = (rule: any): boolean => {
+    if (!rule) return false
+    // Primary check: rule_type field
+    if (rule.rule_type === 'NODE_ARITHMETIC') return true
+    // Fallback: If rule has rule_expression but no logic_en or sql_where, it's likely a math rule
+    if (rule.rule_expression && !rule.logic_en && !rule.sql_where) return true
+    return false
+  }
+
   // Status Pill Renderer for Business Rule column (with Rich Tooltip)
   const BusinessRuleCellRenderer: React.FC<ICellRendererParams> = (params) => {
     const rule = params.data?.rule
-    if (!rule || !rule.logic_en) {
+    
+    if (!rule) {
       return <span style={{ color: '#9ca3af', fontStyle: 'italic' }}>—</span>
     }
     
+    // Phase 5.7: Handle Math Rules (NODE_ARITHMETIC)
+    const isMath = isMathRule(rule)
+    
+    // For Math Rules, display the formula (even if rule_expression is empty, show placeholder)
+    if (isMath) {
+      const formula = rule.rule_expression || 'No formula defined'
+      const original = parseFloat(params.data?.daily_pnl || params.data?.natural_value?.daily || 0)
+      const adjusted = parseFloat(params.data?.adjusted_daily || params.data?.adjusted_value?.daily || 0)
+      const impact = adjusted - original
+      
+      const tooltipContent = (
+        <div>
+          <div style={{ fontWeight: '700', marginBottom: '0.25rem', color: '#1e40af' }}>
+            Math Formula
+          </div>
+          <div style={{ color: '#d1d5db', marginBottom: '0.25rem', fontSize: '0.8rem', fontFamily: 'monospace' }}>
+            {formula}
+          </div>
+          {rule.rule_dependencies && rule.rule_dependencies.length > 0 && (
+            <div style={{ color: '#059669', marginBottom: '0.25rem', fontSize: '0.7rem' }}>
+              Dependencies: {rule.rule_dependencies.join(', ')}
+            </div>
+          )}
+          <div style={{ 
+            color: impact >= 0 ? '#10b981' : '#ef4444', 
+            fontFamily: 'monospace', 
+            fontWeight: '600',
+            fontSize: '0.875rem'
+          }}>
+            Impact: ${impact >= 0 ? '+' : ''}${impact.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </div>
+        </div>
+      )
+      
+      return (
+        <SmartTooltip content={tooltipContent}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <span style={{
+              background: '#dbeafe',
+              color: '#1e40af',
+              padding: '0.125rem 0.5rem',
+              borderRadius: '3px',
+              fontSize: '0.7rem',
+              fontWeight: '600'
+            }}>
+              Math
+            </span>
+            <span style={{ 
+              color: '#6b7280', 
+              fontSize: '0.875rem',
+              fontFamily: 'monospace'
+            }}>
+              {formula}
+            </span>
+          </div>
+        </SmartTooltip>
+      )
+    }
+    
+    // Standard SQL-based rules (existing logic)
     // Determine rule type: AI-Generated, Manual Override, or Inherited
     const isAI = rule.logic_en && !rule.predicate_json // AI-generated if no predicate_json
     const isManual = rule.predicate_json && rule.predicate_json.conditions // Manual if has conditions
@@ -1386,6 +1523,11 @@ const RuleEditor: React.FC = () => {
       pillText = 'Manual Override'
     }
     
+    // Phase 5: Get measure label for filter rules (Multi-Measure support)
+    const measureLabel = rule.measure_name && MEASURE_LABELS[rule.measure_name] 
+      ? MEASURE_LABELS[rule.measure_name] 
+      : null
+    
     // Calculate impact (adjusted - original)
     const original = parseFloat(params.data?.daily_pnl || params.data?.natural_value?.daily || 0)
     const adjusted = parseFloat(params.data?.adjusted_daily || params.data?.adjusted_value?.daily || 0)
@@ -1395,6 +1537,19 @@ const RuleEditor: React.FC = () => {
     
     const tooltipContent = (
       <div>
+        {/* Phase 5: Display measure name in tooltip */}
+        {measureLabel && (
+          <div style={{ 
+            fontWeight: '600', 
+            marginBottom: '0.25rem', 
+            color: '#059669',
+            fontSize: '0.75rem',
+            textTransform: 'uppercase',
+            letterSpacing: '0.5px'
+          }}>
+            Target: {measureLabel}
+          </div>
+        )}
         <div style={{ fontWeight: '700', marginBottom: '0.25rem', color: '#fbbf24' }}>
           {rule.logic_en}
         </div>
@@ -1414,11 +1569,32 @@ const RuleEditor: React.FC = () => {
       </div>
     )
     
+    // Phase 5: Format display text with measure context (polished formatting)
+    const baseLogicText = rule.logic_en || rule.sql_where || 'No rule logic'
+    let displayText: React.ReactNode = baseLogicText
+    
+    // If measure is specified and not default, format as "Sum(Measure): Logic"
+    if (measureLabel && rule.measure_name !== 'daily_pnl') {
+      displayText = (
+        <>
+          <strong style={{ color: '#374151', fontWeight: '600' }}>
+            Sum({measureLabel}):
+          </strong>{' '}
+          <span style={{ color: '#6b7280' }}>{baseLogicText}</span>
+        </>
+      )
+    } else {
+      // Default: just show the logic text
+      displayText = <span style={{ color: '#6b7280' }}>{baseLogicText}</span>
+    }
+    
     return (
       <SmartTooltip content={tooltipContent}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
           <span className={pillClass}>{pillText}</span>
-          <span style={{ color: '#6b7280', fontSize: '0.875rem' }}>{rule.logic_en}</span>
+          <span style={{ fontSize: '0.875rem' }}>
+            {displayText}
+          </span>
         </div>
       </SmartTooltip>
     )
@@ -1670,13 +1846,28 @@ const RuleEditor: React.FC = () => {
         if (firstNode.hasRule && firstNode.rule) {
           const rule = firstNode.rule
           
-          // Load rule into editor
-          if (rule.logic_en) {
+          // Phase 5.7: Check if this is a Math Rule (NODE_ARITHMETIC)
+          if (rule.rule_type === 'NODE_ARITHMETIC' && rule.rule_expression) {
+            // Load math formula into Standard Mode
+            setEditorMode('standard')
+            setStandardRuleType('math')
+            setMathFormula(rule.rule_expression)
+            setRulePreview({
+              logic_en: `Math Formula: ${rule.rule_expression}`,
+              sql_where: '', // Math rules don't have SQL
+              predicate_json: null,
+              translation_successful: true
+            })
+          } else if (rule.logic_en) {
+            // AI Mode rule
             setAiPrompt(rule.logic_en)
             setEditorMode('ai')
-          }
-          
-          if (rule.predicate_json) {
+          } else if (rule.predicate_json) {
+            // Standard Mode Filter rule
+            setEditorMode('standard')
+            setStandardRuleType('filter')
+            // Phase 5: Set target metric from existing rule (backward compatibility)
+            setSelectedMeasure(rule.measure_name || 'daily_pnl')
             // Convert predicate_json to conditions for Standard Mode
             const conditions: RuleCondition[] = []
             if (rule.predicate_json.conditions) {
@@ -1693,7 +1884,7 @@ const RuleEditor: React.FC = () => {
             }
           }
           
-          // Load preview if available
+          // Load preview if available (for filter rules)
           if (rule.sql_where) {
             setRulePreview({
               logic_en: rule.logic_en,
@@ -1706,6 +1897,7 @@ const RuleEditor: React.FC = () => {
           // Clear preview when node without rule is selected
           setRulePreview(null)
           setAiPrompt('')
+          setMathFormula('')
           setConditions([{ field: '', operator: 'equals', value: '' }])
         }
       } else {
@@ -1920,11 +2112,60 @@ const RuleEditor: React.FC = () => {
     }
   }
 
+  // Phase 5.7: Extract node dependencies from math formula
+  const extractDependencies = (formula: string): string[] => {
+    // Match patterns like NODE_A, NODE_3, NODE_AMER_CASH_NY_001, etc.
+    const nodePattern = /\bNODE_[\w]+\b/gi
+    const matches = formula.match(nodePattern)
+    if (!matches) return []
+    // Return unique node IDs (case-insensitive)
+    return Array.from(new Set(matches.map(m => m.toUpperCase())))
+  }
+
+  // Phase 5.7: Insert node reference into formula at cursor position
+  const insertNodeReference = (nodeId: string) => {
+    const textarea = mathFormulaRef.current
+    if (!textarea) {
+      // Fallback: append to end if ref not available
+      setMathFormula(prev => prev + (prev ? ' + ' : '') + nodeId)
+      return
+    }
+    
+    const start = textarea.selectionStart
+    const end = textarea.selectionEnd
+    const currentValue = mathFormula
+    const before = currentValue.substring(0, start)
+    const after = currentValue.substring(end)
+    
+    // Insert node ID with space before if needed
+    const insertText = (before && !before.match(/\s$/)) ? ' ' + nodeId : nodeId
+    const newValue = before + insertText + (after && !after.match(/^\s/) ? ' ' : '') + after
+    
+    setMathFormula(newValue)
+    
+    // Restore cursor position after insertion
+    setTimeout(() => {
+      const newCursorPos = start + insertText.length
+      textarea.setSelectionRange(newCursorPos, newCursorPos)
+      textarea.focus()
+    }, 0)
+  }
+
   // Save & Apply Rule (single or batch)
   const handleSaveRule = async () => {
-    if (!selectedUseCaseId || !rulePreview?.sql_where) {
-      setError('No rule to save. Please generate a rule first.')
-      return
+    // Phase 5.7: Validation for Math Formula mode
+    if (editorMode === 'standard' && standardRuleType === 'math') {
+      if (!mathFormula.trim()) {
+        setError('Please enter a math formula.')
+        return
+      }
+      // For math rules, we don't need rulePreview.sql_where
+    } else {
+      // For filter rules, require sql_where
+      if (!selectedUseCaseId || !rulePreview?.sql_where) {
+        setError('No rule to save. Please generate a rule first.')
+        return
+      }
     }
 
     // Determine if batch save (multiple nodes selected)
@@ -1943,7 +2184,7 @@ const RuleEditor: React.FC = () => {
       
       if (nodesToSave.length > 1) {
         // Batch save to multiple nodes
-        if (editorMode === 'ai' && rulePreview.logic_en) {
+        if (editorMode === 'ai' && rulePreview && rulePreview.logic_en) {
           await axios.post(
             `${API_BASE_URL}/api/v1/use-cases/${selectedUseCaseId}/rules/bulk`,
             {
@@ -1952,7 +2193,21 @@ const RuleEditor: React.FC = () => {
               last_modified_by: 'user123', // TODO: Get from auth context
             }
           )
-        } else if (editorMode === 'standard' && conditions.length > 0) {
+        } else if (editorMode === 'standard' && standardRuleType === 'math' && mathFormula.trim()) {
+          // Phase 5.7: Math Formula Mode (Batch)
+          const dependencies = extractDependencies(mathFormula)
+          await axios.post(
+            `${API_BASE_URL}/api/v1/use-cases/${selectedUseCaseId}/rules/bulk`,
+            {
+              node_ids: nodeIds,
+              rule_type: 'NODE_ARITHMETIC',
+              rule_expression: mathFormula.trim(),
+              rule_dependencies: dependencies,
+              sql_where: '', // Empty string to satisfy backend validation (not used for math rules)
+              last_modified_by: 'user123', // TODO: Get from auth context
+            }
+          )
+        } else if (editorMode === 'standard' && standardRuleType === 'filter' && conditions.length > 0) {
           const formattedConditions = conditions
             .filter(c => c.field && c.value)
             .map(c => ({
@@ -1968,6 +2223,7 @@ const RuleEditor: React.FC = () => {
             {
               node_ids: nodeIds,
               conditions: formattedConditions,
+              measure_name: selectedMeasure, // Phase 5: Include target metric
               last_modified_by: 'user123', // TODO: Get from auth context
             }
           )
@@ -1976,7 +2232,7 @@ const RuleEditor: React.FC = () => {
         setCalculationResult(`Rule saved successfully to ${nodeIds.length} node(s)!`)
       } else {
         // Single node save (existing logic)
-        if (editorMode === 'ai' && rulePreview.logic_en) {
+        if (editorMode === 'ai' && rulePreview && rulePreview.logic_en) {
           await axios.post(
             `${API_BASE_URL}/api/v1/use-cases/${selectedUseCaseId}/rules`,
             {
@@ -1985,7 +2241,21 @@ const RuleEditor: React.FC = () => {
               last_modified_by: 'user123', // TODO: Get from auth context
             }
           )
-        } else if (editorMode === 'standard' && conditions.length > 0) {
+        } else if (editorMode === 'standard' && standardRuleType === 'math' && mathFormula.trim()) {
+          // Phase 5.7: Math Formula Mode (Single)
+          const dependencies = extractDependencies(mathFormula)
+          await axios.post(
+            `${API_BASE_URL}/api/v1/use-cases/${selectedUseCaseId}/rules`,
+            {
+              node_id: nodeIds[0],
+              rule_type: 'NODE_ARITHMETIC',
+              rule_expression: mathFormula.trim(),
+              rule_dependencies: dependencies,
+              sql_where: '', // Empty string to satisfy backend validation (not used for math rules)
+              last_modified_by: 'user123', // TODO: Get from auth context
+            }
+          )
+        } else if (editorMode === 'standard' && standardRuleType === 'filter' && conditions.length > 0) {
           const formattedConditions = conditions
             .filter(c => c.field && c.value)
             .map(c => ({
@@ -2001,6 +2271,7 @@ const RuleEditor: React.FC = () => {
             {
               node_id: nodeIds[0],
               conditions: formattedConditions,
+              measure_name: selectedMeasure, // Phase 5: Include target metric
               last_modified_by: 'user123', // TODO: Get from auth context
             }
           )
@@ -2017,21 +2288,53 @@ const RuleEditor: React.FC = () => {
         }
       }
 
-      // Refresh impact preview
-      if (rulePreview.sql_where) {
+      // Refresh impact preview (only for filter/AI rules, not math rules)
+      if (rulePreview && rulePreview.sql_where && 
+          (editorMode === 'ai' || (editorMode === 'standard' && standardRuleType === 'filter'))) {
         await fetchRulePreview(rulePreview.sql_where)
       }
 
       // Success - clear form, close modal, and show message
       setRulePreview(null)
       setAiPrompt('')
+      setMathFormula('') // Phase 5.7: Clear math formula
       setConditions([{ field: '', operator: 'equals', value: '' }])
       setModalOpen(false)
       setCalculationResult('Rule saved successfully!')
       setTimeout(() => setCalculationResult(null), 3000)
     } catch (err: any) {
       console.error('Failed to save rule:', err)
-      setError(err.response?.data?.detail || 'Failed to save rule. Please try again.')
+      
+      // Phase 5.7: Extract error message as string (not object)
+      let errorMessage = 'Failed to save rule. Please try again.'
+      
+      if (err.response?.data) {
+        // Handle different error response formats
+        if (typeof err.response.data.detail === 'string') {
+          errorMessage = err.response.data.detail
+        } else if (typeof err.response.data.detail === 'object') {
+          // If detail is an object, try to extract a meaningful message
+          if (err.response.data.detail.message) {
+            errorMessage = err.response.data.detail.message
+          } else if (Array.isArray(err.response.data.detail)) {
+            // Pydantic validation errors are often arrays
+            errorMessage = err.response.data.detail.map((e: any) => 
+              typeof e === 'string' ? e : e.msg || JSON.stringify(e)
+            ).join(', ')
+          } else {
+            // Fallback: stringify the object
+            errorMessage = JSON.stringify(err.response.data.detail)
+          }
+        } else if (typeof err.response.data.message === 'string') {
+          errorMessage = err.response.data.message
+        } else if (typeof err.response.data === 'string') {
+          errorMessage = err.response.data
+        }
+      } else if (err.message) {
+        errorMessage = err.message
+      }
+      
+      setError(errorMessage)
     } finally {
       setLoading(false)
     }
@@ -2750,8 +3053,142 @@ const RuleEditor: React.FC = () => {
               {/* Standard Mode Editor */}
               {editorMode === 'standard' && (
                 <div className="editor-section">
-                  <label>Rule Conditions</label>
-                  {conditions.map((condition, index) => (
+                  {/* Phase 5.7: Rule Type Selector */}
+                  <label htmlFor="rule-type-selector">Rule Type</label>
+                  <select
+                    id="rule-type-selector"
+                    className="rule-type-selector"
+                    value={standardRuleType}
+                    onChange={(e) => {
+                      setStandardRuleType(e.target.value as 'filter' | 'math')
+                      // Clear preview when switching rule types
+                      setRulePreview(null)
+                      setMathFormula('')
+                      setConditions([{ field: '', operator: 'equals', value: '' }])
+                      // Reset target metric to default when switching to filter mode
+                      if (e.target.value === 'filter') {
+                        setSelectedMeasure('daily_pnl')
+                      }
+                    }}
+                    style={{
+                      width: '100%',
+                      padding: '0.5rem',
+                      marginBottom: '1rem',
+                      border: '1px solid #d1d5db',
+                      borderRadius: '4px',
+                      fontSize: '0.875rem'
+                    }}
+                  >
+                    <option value="filter">Data Filter (SQL)</option>
+                    <option value="math">Math Formula</option>
+                  </select>
+
+                  {/* Math Formula Mode */}
+                  {standardRuleType === 'math' && (
+                    <div style={{ marginBottom: '1rem' }}>
+                      {/* Phase 5.7: Node Reference Dropdown */}
+                      <label htmlFor="node-reference-select">Insert Reference to Node:</label>
+                      <select
+                        id="node-reference-select"
+                        value=""
+                        onChange={(e) => {
+                          const selectedNodeId = e.target.value
+                          if (selectedNodeId) {
+                            insertNodeReference(selectedNodeId)
+                            e.target.value = '' // Reset dropdown
+                          }
+                        }}
+                        style={{
+                          width: '100%',
+                          padding: '0.5rem',
+                          marginBottom: '0.75rem',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '4px',
+                          fontSize: '0.875rem',
+                          backgroundColor: 'white'
+                        }}
+                      >
+                        <option value="">-- Select a node to insert --</option>
+                        {rowData
+                          .filter((node: any) => node.node_id && node.node_name)
+                          .sort((a: any, b: any) => {
+                            // Sort by node_name for better UX
+                            const nameA = (a.node_name || a.node_id || '').toLowerCase()
+                            const nameB = (b.node_name || b.node_id || '').toLowerCase()
+                            return nameA.localeCompare(nameB)
+                          })
+                          .map((node: any) => (
+                            <option key={node.node_id} value={node.node_id}>
+                              {node.node_name || node.node_id} ({node.node_id})
+                            </option>
+                          ))}
+                      </select>
+                      
+                      <label htmlFor="math-formula">Enter Formula</label>
+                      <textarea
+                        ref={mathFormulaRef}
+                        id="math-formula"
+                        className="math-formula-input"
+                        value={mathFormula}
+                        onChange={(e) => setMathFormula(e.target.value)}
+                        placeholder="e.g., NODE_A * 0.10 + NODE_B"
+                        rows={4}
+                        style={{
+                          width: '100%',
+                          padding: '0.5rem',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '4px',
+                          fontSize: '0.875rem',
+                          fontFamily: 'monospace',
+                          resize: 'vertical'
+                        }}
+                      />
+                      <div style={{ 
+                        marginTop: '0.5rem', 
+                        fontSize: '0.75rem', 
+                        color: '#6b7280',
+                        fontStyle: 'italic'
+                      }}>
+                        Supported operators: +, -, *, /, parentheses. Use NODE_X to reference other nodes.
+                      </div>
+                      {mathFormula && (
+                        <div style={{ 
+                          marginTop: '0.5rem', 
+                          fontSize: '0.75rem', 
+                          color: '#059669'
+                        }}>
+                          Dependencies: {extractDependencies(mathFormula).join(', ') || 'None'}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Data Filter Mode */}
+                  {standardRuleType === 'filter' && (
+                    <>
+                      {/* Phase 5: Target Metric Dropdown */}
+                      <label htmlFor="target-metric-selector">Target Metric</label>
+                      <select
+                        id="target-metric-selector"
+                        value={selectedMeasure}
+                        onChange={(e) => setSelectedMeasure(e.target.value)}
+                        style={{
+                          width: '100%',
+                          padding: '0.5rem',
+                          marginBottom: '1rem',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '4px',
+                          fontSize: '0.875rem'
+                        }}
+                      >
+                        <option value="daily_pnl">Daily P&L</option>
+                        <option value="pnl_commission">Commission P&L</option>
+                        <option value="pnl_trade">Trade P&L</option>
+                        <option value="ytd_pnl">YTD P&L</option>
+                      </select>
+                      
+                      <label>Rule Conditions</label>
+                      {conditions.map((condition, index) => (
                     <div key={index} className="condition-row">
                       <select
                         className="condition-field"
@@ -2873,21 +3310,23 @@ const RuleEditor: React.FC = () => {
                       )}
                     </div>
                   ))}
-                  <div className="condition-actions">
-                    <button
-                      className="add-condition-button"
-                      onClick={handleAddCondition}
-                    >
-                      + Add Condition
-                    </button>
-                    <button
-                      className="generate-button"
-                      onClick={handleGenerateFromConditions}
-                      disabled={previewLoading || conditions.every(c => !c.field || !c.value)}
-                    >
-                      {previewLoading ? 'Generating...' : 'Generate Rule'}
-                    </button>
-                  </div>
+                      <div className="condition-actions">
+                        <button
+                          className="add-condition-button"
+                          onClick={handleAddCondition}
+                        >
+                          + Add Condition
+                        </button>
+                        <button
+                          className="generate-button"
+                          onClick={handleGenerateFromConditions}
+                          disabled={previewLoading || conditions.every(c => !c.field || !c.value)}
+                        >
+                          {previewLoading ? 'Generating...' : 'Generate Rule'}
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
 
@@ -2939,16 +3378,106 @@ const RuleEditor: React.FC = () => {
                   {previewLoading && (
                     <div className="preview-loading">Loading preview...</div>
                   )}
-
-                  <button
-                    className="save-button"
-                    onClick={handleSaveRule}
-                    disabled={loading || !rulePreview.translation_successful || !rulePreview.sql_where}
-                  >
-                    {loading ? 'Saving...' : 'Save & Apply'}
-                  </button>
                 </div>
               )}
+
+              {/* Phase 5.7: Math Formula Preview (when no rulePreview exists) */}
+              {editorMode === 'standard' && standardRuleType === 'math' && mathFormula.trim() && !rulePreview && (
+                <div className="rule-preview-card" style={{
+                  border: '1px solid #d1d5db',
+                  borderRadius: '6px',
+                  padding: '1rem',
+                  backgroundColor: '#f9fafb',
+                  marginTop: '1rem'
+                }}>
+                  <h4 style={{ marginTop: 0, marginBottom: '0.75rem' }}>Math Formula Preview</h4>
+                  <div className="preview-section">
+                    <strong>Formula:</strong>
+                    <code style={{
+                      display: 'block',
+                      padding: '0.5rem',
+                      marginTop: '0.5rem',
+                      backgroundColor: 'white',
+                      border: '1px solid #e5e7eb',
+                      borderRadius: '4px',
+                      fontFamily: 'monospace',
+                      fontSize: '0.875rem'
+                    }}>
+                      {mathFormula}
+                    </code>
+                  </div>
+                  {extractDependencies(mathFormula).length > 0 && (
+                    <div className="preview-section" style={{ marginTop: '0.75rem' }}>
+                      <strong>Dependencies:</strong>
+                      <p style={{ marginTop: '0.25rem', color: '#059669', fontSize: '0.875rem' }}>
+                        {extractDependencies(mathFormula).join(', ')}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Phase 5.7: Action Buttons - Always Visible */}
+              <div className="modal-footer-actions" style={{
+                display: 'flex',
+                justifyContent: 'flex-end',
+                gap: '0.75rem',
+                marginTop: '1.5rem',
+                paddingTop: '1rem',
+                borderTop: '1px solid #e5e7eb'
+              }}>
+                <button
+                  className="cancel-button"
+                  onClick={() => {
+                    setModalOpen(false)
+                    setRulePreview(null)
+                    setMathFormula('')
+                    setConditions([{ field: '', operator: 'equals', value: '' }])
+                    setError(null)
+                  }}
+                  style={{
+                    padding: '0.5rem 1rem',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '4px',
+                    backgroundColor: 'white',
+                    color: '#374151',
+                    cursor: 'pointer',
+                    fontSize: '0.875rem'
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="save-button"
+                  onClick={handleSaveRule}
+                  disabled={
+                    loading || 
+                    (editorMode === 'standard' && standardRuleType === 'math' && !mathFormula.trim()) ||
+                    (editorMode === 'standard' && standardRuleType === 'filter' && (!rulePreview?.translation_successful || !rulePreview?.sql_where)) ||
+                    (editorMode === 'ai' && (!rulePreview?.translation_successful || !rulePreview?.sql_where))
+                  }
+                  style={{
+                    padding: '0.5rem 1.5rem',
+                    border: 'none',
+                    borderRadius: '4px',
+                    backgroundColor: loading || 
+                      (editorMode === 'standard' && standardRuleType === 'math' && !mathFormula.trim()) ||
+                      (editorMode === 'standard' && standardRuleType === 'filter' && (!rulePreview?.translation_successful || !rulePreview?.sql_where)) ||
+                      (editorMode === 'ai' && (!rulePreview?.translation_successful || !rulePreview?.sql_where))
+                      ? '#9ca3af' : '#0ea5e9',
+                    color: 'white',
+                    cursor: loading || 
+                      (editorMode === 'standard' && standardRuleType === 'math' && !mathFormula.trim()) ||
+                      (editorMode === 'standard' && standardRuleType === 'filter' && (!rulePreview?.translation_successful || !rulePreview?.sql_where)) ||
+                      (editorMode === 'ai' && (!rulePreview?.translation_successful || !rulePreview?.sql_where))
+                      ? 'not-allowed' : 'pointer',
+                    fontSize: '0.875rem',
+                    fontWeight: '600'
+                  }}
+                >
+                  {loading ? 'Saving...' : 'Save & Apply'}
+                </button>
+              </div>
               </div>
             </div>
           </div>
@@ -2981,16 +3510,26 @@ const RuleEditor: React.FC = () => {
                       try {
                         const rulesArray = Array.from(rules.values())
                         const csv = [
-                          ['Node Name', 'Rule Logic', 'Created By', 'Impact', 'Affected Rows', 'Total Rows', 'Percentage'].join(','),
-                          ...rulesArray.map((rule: any) => [
-                            rule.node_name || rule.node_id,
-                            `"${(rule.logic_en || '').replace(/"/g, '""')}"`,
-                            rule.last_modified_by || 'Unknown',
-                            rule.estimatedImpact || 0,
-                            rule.affected_rows || 0,
-                            rule.total_rows || 0,
-                            rule.percentage || 0
-                          ].join(','))
+                          ['Node Name', 'Rule Type', 'Rule Logic/Formula', 'Created By', 'Impact', 'Affected Rows', 'Total Rows', 'Percentage', 'Dependencies'].join(','),
+                          ...rulesArray.map((rule: any) => {
+                            const isMath = isMathRule(rule)
+                            const ruleType = isMath ? 'Math Formula' : (rule.rule_type || 'Filter')
+                            const ruleContent = isMath 
+                              ? (rule.rule_expression || '')
+                              : (rule.logic_en || rule.sql_where || '')
+                            
+                            return [
+                              rule.node_name || rule.node_id,
+                              ruleType,
+                              `"${ruleContent.replace(/"/g, '""')}"`,
+                              rule.last_modified_by || 'Unknown',
+                              rule.estimatedImpact || 0,
+                              rule.affected_rows || 0,
+                              rule.total_rows || 0,
+                              rule.percentage || 0,
+                              isMath && rule.rule_dependencies ? rule.rule_dependencies.join('; ') : ''
+                            ].join(',')
+                          })
                         ].join('\n')
                         
                         const blob = new Blob([csv], { type: 'text/csv' })
@@ -3023,23 +3562,81 @@ const RuleEditor: React.FC = () => {
               </div>
               <div className="library-rules-list">
                 {rules.size > 0 ? (
-                  Array.from(rules.values()).map((rule: any) => (
-                    <div key={rule.rule_id} className="library-rule-card">
-                      <div className="library-rule-header">
-                        <strong>{rule.node_name || rule.node_id}</strong>
-                        <span className="rule-badge-small">fx</span>
-                      </div>
-                      <div className="library-rule-body">
-                        <p className="rule-logic">{rule.logic_en || 'N/A'}</p>
-                        <div className="library-rule-meta">
-                          <span>By: {rule.last_modified_by || 'Unknown'}</span>
-                          <span className={`impact-badge ${rule.estimatedImpact < 0 ? 'negative' : 'positive'}`}>
-                            {rule.estimatedImpact < 0 ? '-' : '+'}${Math.abs(rule.estimatedImpact).toLocaleString()}k
+                  Array.from(rules.values()).map((rule: any) => {
+                    // Phase 5.7: Determine rule type and display accordingly
+                    const isMath = isMathRule(rule)
+                    
+                    // For math rules, use rule_expression; for others, use logic_en or sql_where
+                    const ruleDescription = isMath 
+                      ? (rule.rule_expression || 'No formula defined')
+                      : (rule.logic_en || rule.sql_where || 'No rule logic defined')
+                    const ruleBadge = isMath ? 'Math' : 'fx'
+                    const badgeClass = isMath ? 'rule-badge-math' : 'rule-badge-small'
+                    
+                    // Phase 5: Get measure label for filter rules (Multi-Measure support)
+                    const measureLabel = rule.measure_name && MEASURE_LABELS[rule.measure_name] 
+                      ? MEASURE_LABELS[rule.measure_name] 
+                      : null
+                    
+                    return (
+                      <div key={rule.rule_id} className="library-rule-card">
+                        <div className="library-rule-header">
+                          <strong>{rule.node_name || rule.node_id}</strong>
+                          <span className={badgeClass} style={isMath ? {
+                            background: '#dbeafe',
+                            color: '#1e40af',
+                            padding: '0.125rem 0.5rem',
+                            borderRadius: '3px',
+                            fontSize: '0.7rem',
+                            fontWeight: '600'
+                          } : {}}>
+                            {ruleBadge}
                           </span>
                         </div>
+                        <div className="library-rule-body">
+                          {/* Phase 5: Display measure name for filter rules */}
+                          {!isMath && measureLabel && (
+                            <div style={{
+                              fontSize: '0.75rem',
+                              color: '#059669',
+                              fontWeight: '600',
+                              marginBottom: '0.25rem',
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.5px'
+                            }}>
+                              Target: {measureLabel}
+                            </div>
+                          )}
+                          <p className="rule-logic" style={isMath ? {
+                            fontFamily: 'monospace',
+                            backgroundColor: '#f3f4f6',
+                            padding: '0.5rem',
+                            borderRadius: '4px',
+                            fontSize: '0.85rem'
+                          } : {}}>
+                            {isMath ? 'Formula: ' : ''}{ruleDescription}
+                          </p>
+                          <div className="library-rule-meta">
+                            <span>By: {rule.last_modified_by || 'Unknown'}</span>
+                            {!isMath && (
+                              <span className={`impact-badge ${rule.estimatedImpact < 0 ? 'negative' : 'positive'}`}>
+                                {rule.estimatedImpact < 0 ? '-' : '+'}${Math.abs(rule.estimatedImpact).toLocaleString()}k
+                              </span>
+                            )}
+                            {isMath && rule.rule_dependencies && rule.rule_dependencies.length > 0 && (
+                              <span style={{
+                                fontSize: '0.75rem',
+                                color: '#059669',
+                                fontStyle: 'italic'
+                              }}>
+                                Depends on: {rule.rule_dependencies.join(', ')}
+                              </span>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  ))
+                    )
+                  })
                 ) : (
                   <div className="no-rules-message">
                     <p>No active rules yet.</p>
@@ -3067,22 +3664,48 @@ const RuleEditor: React.FC = () => {
               </p>
               
               <div className="audit-rules-list">
-                {auditRules.map((rule, index) => (
-                  <div key={rule.rule_id || index} className="audit-rule-item">
-                    <div className="audit-rule-header">
-                      <strong>{rule.node_name || rule.node_id}</strong>
-                      <span className="audit-rule-badge">Rule #{rule.rule_id}</span>
-                    </div>
-                    <div className="audit-rule-details">
-                      <div className="audit-rule-logic">
-                        <strong>Logic:</strong> {rule.logic_en || 'N/A'}
+                {auditRules.map((rule, index) => {
+                  // Phase 5.7: Handle Math Rules in audit drawer
+                  const isMath = isMathRule(rule)
+                  const ruleDescription = isMath 
+                    ? (rule.rule_expression || 'No formula defined')
+                    : (rule.logic_en || rule.sql_where || 'No rule logic defined')
+                  
+                  return (
+                    <div key={rule.rule_id || index} className="audit-rule-item">
+                      <div className="audit-rule-header">
+                        <strong>{rule.node_name || rule.node_id}</strong>
+                        <span className="audit-rule-badge">
+                          {isMath ? 'Math Rule' : `Rule #${rule.rule_id}`}
+                        </span>
                       </div>
-                      <div className="audit-rule-impact">
-                        <strong>Impact:</strong> {rule.affected_rows?.toLocaleString() || 0} of {rule.total_rows?.toLocaleString() || 0} rows ({rule.percentage?.toFixed(2) || 0}%)
+                      <div className="audit-rule-details">
+                        <div className="audit-rule-logic">
+                          <strong>{isMath ? 'Formula:' : 'Logic:'}</strong>{' '}
+                          <span style={isMath ? {
+                            fontFamily: 'monospace',
+                            backgroundColor: '#f3f4f6',
+                            padding: '0.25rem 0.5rem',
+                            borderRadius: '4px',
+                            fontSize: '0.85rem'
+                          } : {}}>
+                            {ruleDescription}
+                          </span>
+                        </div>
+                        {!isMath && (
+                          <div className="audit-rule-impact">
+                            <strong>Impact:</strong> {rule.affected_rows?.toLocaleString() || 0} of {rule.total_rows?.toLocaleString() || 0} rows ({rule.percentage?.toFixed(2) || 0}%)
+                          </div>
+                        )}
+                        {isMath && rule.rule_dependencies && rule.rule_dependencies.length > 0 && (
+                          <div className="audit-rule-impact" style={{ color: '#059669', fontSize: '0.875rem' }}>
+                            <strong>Dependencies:</strong> {rule.rule_dependencies.join(', ')}
+                          </div>
+                        )}
                       </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
               
               <div className="audit-drawer-footer">

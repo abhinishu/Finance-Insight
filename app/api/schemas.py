@@ -160,6 +160,15 @@ class RuleCreate(BaseModel):
 
     def model_post_init(self, __context):
         """Validate that exactly one mode is provided."""
+        # Phase 5.7: Handle Math Rules (NODE_ARITHMETIC) separately
+        if self.rule_type == 'NODE_ARITHMETIC':
+            # Math rules require rule_expression (formula)
+            if not self.rule_expression or not self.rule_expression.strip():
+                raise ValueError("Math rules (NODE_ARITHMETIC) must provide 'rule_expression' (formula).")
+            # Math rules don't need conditions, logic_en, or sql_where
+            return self
+        
+        # Existing validation for SQL-based rules (FILTER, FILTER_ARITHMETIC, or default)
         conditions = self.conditions
         logic_en = self.logic_en
         sql_where = self.sql_where
@@ -169,6 +178,8 @@ class RuleCreate(BaseModel):
             raise ValueError("Must provide either 'conditions' (manual), 'logic_en' (GenAI), or 'sql_where' (direct)")
         if provided > 1:
             raise ValueError("Cannot provide multiple modes. Choose one: 'conditions', 'logic_en', or 'sql_where'")
+        
+        return self
 
     class Config:
         json_schema_extra = {
@@ -245,19 +256,21 @@ class RuleResponse(BaseModel):
 class RulePreviewRequest(BaseModel):
     """Request schema for previewing rule impact."""
     sql_where: str = Field(..., description="SQL WHERE clause to preview")
+    use_case_id: Optional[UUID] = Field(None, description="Use case ID to determine which fact table to query")
     
     class Config:
         json_schema_extra = {
             "example": {
-                "sql_where": "book_id NOT IN ('B01', 'B02')"
+                "sql_where": "book_id NOT IN ('B01', 'B02')",
+                "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb"
             }
         }
 
 
 class RulePreviewResponse(BaseModel):
     """Response schema for rule preview."""
-    affected_rows: int = Field(..., description="Number of rows in fact_pnl_gold that match the rule")
-    total_rows: int = Field(..., description="Total rows in fact_pnl_gold")
+    affected_rows: int = Field(..., description="Number of rows in the fact table that match the rule")
+    total_rows: int = Field(..., description="Total rows in the fact table")
     percentage: float = Field(..., description="Percentage of rows affected")
     
     class Config:
@@ -300,6 +313,12 @@ class BulkRuleCreateRequest(BaseModel):
     
     # GenAI mode: natural language
     logic_en: Optional[str] = Field(None, description="Natural language description")
+    
+    # Phase 5.7: Math rule fields (for NODE_ARITHMETIC rules)
+    rule_type: Optional[str] = Field(None, description="Rule type: FILTER, FILTER_ARITHMETIC, NODE_ARITHMETIC (default: FILTER)")
+    rule_expression: Optional[str] = Field(None, description="Arithmetic expression for Type 3 rules (e.g., 'NODE_3 - NODE_4')")
+    rule_dependencies: Optional[List[str]] = Field(None, description="List of node IDs this rule depends on (for Type 3 rules)")
+    sql_where: Optional[str] = Field(None, description="Direct SQL WHERE clause (for filter rules)")
     
     class Config:
         json_schema_extra = {

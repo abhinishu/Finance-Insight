@@ -28,6 +28,11 @@ from app.models import (
     UseCaseRun,
     RunStatus,
 )
+from app.services.dependency_resolver import (
+    DependencyResolver,
+    CircularDependencyError,
+    evaluate_type3_expression
+)
 
 logger = logging.getLogger(__name__)
 
@@ -253,6 +258,10 @@ def calculate_use_case(
         if not hierarchy_dict:
             raise ValueError(f"No hierarchy found for use case '{use_case_id}'")
         
+        # Phase 5.1: Convert hierarchy_dict to list of nodes for RuleResolver compatibility
+        # This ensures hierarchy_nodes is available if RuleResolver needs to be called
+        hierarchy_nodes = list(hierarchy_dict.values())
+        
         max_depth = max(node.depth for node in hierarchy_dict.values())
         
         # Load facts
@@ -263,40 +272,60 @@ def calculate_use_case(
             hierarchy_dict, children_dict, leaf_nodes, facts_df
         )
         
-        # Load active rules for use case (only rules with sql_where)
+        # Load all rules for use case
         rules_dict = load_rules(session, use_case_id)
-        active_rules = {
+        all_rules = list(rules_dict.values())
+        
+        # Separate SQL rules (Type 1/2) from Math rules (Type 3)
+        sql_rules = {
             node_id: rule
             for node_id, rule in rules_dict.items()
-            if rule.sql_where  # Only rules with SQL WHERE clause are active
+            if rule.rule_type != 'NODE_ARITHMETIC' and rule.sql_where
         }
         
-        # Stage 1: Rule Application with "Most Specific Wins" Policy
-        # Child rules override parent rules. Apply rules bottom-up, skipping parent
-        # rules if any child has a rule.
+        type3_rules = [
+            rule for rule in all_rules
+            if rule.rule_type == 'NODE_ARITHMETIC' and rule.rule_expression
+        ]
+        
+        # Phase 5.7: Resolve execution order for Type 3 rules
+        sorted_type3_rules = []
+        if type3_rules:
+            try:
+                sorted_type3_rules = DependencyResolver.resolve_execution_order(
+                    type3_rules,
+                    hierarchy_dict
+                )
+                logger.info(f"Resolved execution order for {len(sorted_type3_rules)} Type 3 rules")
+            except CircularDependencyError as e:
+                logger.error(f"Circular dependency detected in Type 3 rules: {e}")
+                raise ValueError(f"Cannot execute Type 3 rules: {e}")
+        
+        # Stage 1: Execute SQL Rules (Type 1/2) - Keep existing logic
         adjusted_results = natural_results.copy()
         rules_applied = 0
         
+        # Stage 1a: Execute SQL Rules (Type 1/2) with "Most Specific Wins" Policy
         # Helper function to check if any descendant has a rule
-        def has_descendant_rule(node_id: str) -> bool:
+        def has_descendant_rule(node_id: str, rules_dict: Dict) -> bool:
             """Check if any descendant (child, grandchild, etc.) has a rule."""
             children = children_dict.get(node_id, [])
             for child_id in children:
-                if child_id in active_rules:
+                if child_id in rules_dict:
                     return True
-                if has_descendant_rule(child_id):
+                if has_descendant_rule(child_id, rules_dict):
                     return True
             return False
         
-        # Apply rules bottom-up (deepest first), but only if no descendant has a rule
+        # Apply SQL rules bottom-up (deepest first), but only if no descendant has a rule
         # Process nodes by depth (deepest first)
         for depth in range(max_depth, -1, -1):
             for node_id, node in hierarchy_dict.items():
-                if node.depth == depth and node_id in active_rules:
+                if node.depth == depth and node_id in sql_rules:
                     # Check if any descendant has a rule
-                    if not has_descendant_rule(node_id):
+                    if not has_descendant_rule(node_id, sql_rules):
                         # No descendant has a rule, so apply this rule
-                        rule = active_rules[node_id]
+                        rule = sql_rules[node_id]
                         
                         if node.is_leaf:
                             # For leaf nodes, apply rule directly
@@ -304,15 +333,66 @@ def calculate_use_case(
                             adjusted_results[node_id] = rule_adjusted
                         else:
                             # For non-leaf nodes, apply rule to get aggregated value
-                            # This executes the SQL WHERE clause against fact_pnl_gold
+                            # This executes the SQL WHERE clause against fact table
                             rule_adjusted = apply_rule_to_leaf(session, node_id, rule)
                             adjusted_results[node_id] = rule_adjusted
                         
                         rules_applied += 1
-                        logger.info(f"Applied rule {rule.rule_id} to node {node_id} (Most Specific Wins)")
+                        logger.info(f"Applied SQL rule {rule.rule_id} to node {node_id} (Most Specific Wins)")
                     else:
                         # Descendant has a rule, so skip this parent rule
-                        logger.info(f"Skipping rule for node {node_id} - descendant has more specific rule")
+                        logger.info(f"Skipping SQL rule for node {node_id} - descendant has more specific rule")
+        
+        # Stage 1b: Execute Type 3 Rules (Math/Allocation Rules) in dependency order
+        # Phase 5.7: The Math Dependency Engine
+        for rule in sorted_type3_rules:
+            if rule.rule_type != 'NODE_ARITHMETIC':
+                continue  # Skip non-Type 3 rules (already handled above)
+            
+            target_node = rule.node_id
+            
+            # Evaluate the arithmetic expression
+            try:
+                # Get measure name (default to 'daily')
+                measure_name = rule.measure_name or 'daily_pnl'
+                # Map measure_name to our internal measure key
+                measure_key = 'daily'  # Default
+                if 'mtd' in measure_name.lower() or 'commission' in measure_name.lower():
+                    measure_key = 'mtd'
+                elif 'ytd' in measure_name.lower() or 'trade' in measure_name.lower():
+                    measure_key = 'ytd'
+                elif 'pytd' in measure_name.lower():
+                    measure_key = 'pytd'
+                
+                # Evaluate expression using current hierarchy_values
+                calculated_values = evaluate_type3_expression(
+                    rule.rule_expression,
+                    adjusted_results,
+                    measure=measure_key
+                )
+                
+                # Update adjusted_results with calculated values
+                # CRITICAL: Ensure all values are Decimal
+                adjusted_results[target_node] = {
+                    'daily': Decimal(str(calculated_values.get('daily', Decimal('0')))),
+                    'mtd': Decimal(str(calculated_values.get('mtd', Decimal('0')))),
+                    'ytd': Decimal(str(calculated_values.get('ytd', Decimal('0')))),
+                    'pytd': Decimal(str(calculated_values.get('pytd', Decimal('0')))),
+                }
+                
+                rules_applied += 1
+                logger.info(f"Applied Type 3 rule {rule.rule_id} to node {target_node}: "
+                          f"{rule.rule_expression} = {calculated_values.get('daily', 0)}")
+                
+            except Exception as e:
+                logger.error(f"Error executing Type 3 rule {rule.rule_id} for node {target_node}: {e}")
+                # Set to zero on error
+                adjusted_results[target_node] = {
+                    'daily': Decimal('0'),
+                    'mtd': Decimal('0'),
+                    'ytd': Decimal('0'),
+                    'pytd': Decimal('0'),
+                }
         
         # Stage 2: Waterfall Up
         # Perform bottom-up aggregation: parents sum rule-adjusted children
@@ -332,6 +412,12 @@ def calculate_use_case(
             'pytd': sum(plug.get('pytd', Decimal('0')) for plug in plug_results.values()),
         }
         
+        # Combine SQL and Type 3 rules for saving
+        all_active_rules = {**sql_rules}
+        for rule in sorted_type3_rules:
+            if rule.rule_type == 'NODE_ARITHMETIC':
+                all_active_rules[rule.node_id] = rule
+        
         # Save results to database
         num_results = save_calculation_results(
             run.run_id,
@@ -339,7 +425,7 @@ def calculate_use_case(
             natural_results,
             adjusted_results,
             plug_results,
-            active_rules,
+            all_active_rules,
             session
         )
         

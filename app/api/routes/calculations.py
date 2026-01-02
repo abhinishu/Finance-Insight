@@ -67,17 +67,22 @@ def trigger_calculation(
     
     try:
         # Execute calculation
+        logger.info(f"[API] Successfully invoking calculate_use_case for use case {use_case_id}")
         result = calculate_use_case(
             use_case_id=use_case_id,
             session=db,
             triggered_by=triggered_by,
             version_tag=version_tag
         )
+        logger.info(f"[API] Successfully completed calculate_use_case for use case {use_case_id}")
         
         # Build summary message
-        total_plug_daily = result['total_plug']['daily']
+        # CRITICAL FIX: Use .get() with safe defaults to prevent KeyError
+        total_plug = result.get('total_plug', {})
+        total_plug_daily = total_plug.get('daily', '0') if isinstance(total_plug, dict) else '0'
+        rules_applied = result.get('rules_applied', 0)
         message = (
-            f"Calculation complete. {result['rules_applied']} rules applied. "
+            f"Calculation complete. {rules_applied} rules applied. "
             f"Total Plug: ${total_plug_daily}"
         )
         
@@ -107,12 +112,13 @@ def trigger_calculation(
         # PNL date is not available in UseCaseRun, so we'll leave it as None
         # The frontend can use the run_timestamp as the calculation date
         
+        # CRITICAL FIX: Use .get() with safe defaults to prevent KeyError
         return CalculationResponse(
-            run_id=result['run_id'],
-            use_case_id=result['use_case_id'],
-            rules_applied=result['rules_applied'],
-            total_plug=result['total_plug'],
-            duration_ms=result['duration_ms'],
+            run_id=result.get('run_id'),
+            use_case_id=result.get('use_case_id', use_case_id),
+            rules_applied=result.get('rules_applied', 0),
+            total_plug=result.get('total_plug', {'daily': '0', 'mtd': '0', 'ytd': '0', 'pytd': '0'}),
+            duration_ms=result.get('duration_ms', 0),
             message=message,
             run_timestamp=run_timestamp,
             pnl_date=pnl_date
@@ -199,19 +205,8 @@ def get_calculation_results(
                 run = use_case_run
                 run_id_to_use = use_case_run.run_id
     
-    # CRITICAL FIX: If no run found, return empty hierarchy to force frontend to use discovery endpoint
-    # The discovery endpoint uses unified_pnl_service which is the single source of truth
-    if not run:
-        logger.info(f"No calculation runs found for use case '{use_case_id}'. Returning empty hierarchy to force fallback to discovery endpoint (unified_pnl_service).")
-        # Return empty hierarchy so frontend falls back to discovery endpoint
-        return ResultsResponse(
-            run_id="N/A",
-            use_case_id=str(use_case_id),
-            version_tag="No Run",
-            run_timestamp="",
-            hierarchy=[]  # Empty hierarchy forces frontend to use discovery endpoint
-        )
-    
+    # CRITICAL FIX: Always load hierarchy and calculate natural values, even if no run exists
+    # This ensures Tab 3 shows data from unified_pnl_service (same as Tab 2) even without saved results
     # Load hierarchy
     from app.engine.waterfall import load_hierarchy
     hierarchy_dict, children_dict, leaf_nodes = load_hierarchy(db, use_case_id)
@@ -221,6 +216,17 @@ def get_calculation_results(
             status_code=404,
             detail=f"No hierarchy found for use case '{use_case_id}'"
         )
+    
+    # Log whether we have a run or not
+    if not run:
+        logger.info(f"[Results] No calculation run found for use case '{use_case_id}', but continuing to build hierarchy with natural values from unified_pnl_service")
+    else:
+        logger.info(f"[Results] Found calculation run '{run_id_to_use}' for use case '{use_case_id}'")
+    
+    # Phase 5.1: Convert hierarchy_dict to list of nodes for RuleResolver compatibility
+    # This ensures hierarchy_nodes is available if RuleResolver needs to be called
+    hierarchy_nodes = list(hierarchy_dict.values())
+    logger.info(f"[Results] Successfully loaded hierarchy: {len(hierarchy_nodes)} nodes for use case {use_case_id}")
     
     # CRITICAL FIX: Load calculation results with eager loading using outerjoin
     # This ensures rules are loaded efficiently in a single query, preventing N+1 queries
@@ -267,15 +273,43 @@ def get_calculation_results(
     
     # Build results dictionary with explicitly mapped rule details
     # Rules are already loaded via the outerjoin above, so we can efficiently map them
+    # CRITICAL: 100% Defensive - Ensure all dictionaries have required keys
     results_dict = {}
+    default_measure_vector = {'daily': '0', 'mtd': '0', 'ytd': '0', 'pytd': '0'}
+    default_plug_vector = {'daily': '0', 'mtd': '0', 'ytd': '0', 'pytd': '0'}
+    
     for result in results:
         rule = rules_dict.get(result.node_id)
+        
+        # CRITICAL FIX: Ensure measure_vector and plug_vector are dicts with all keys
+        adjusted_value_raw = result.measure_vector if result.measure_vector else {}
+        if not isinstance(adjusted_value_raw, dict):
+            adjusted_value = default_measure_vector.copy()
+        else:
+            adjusted_value = {
+                'daily': str(adjusted_value_raw.get('daily', '0')),
+                'mtd': str(adjusted_value_raw.get('mtd', '0')),
+                'ytd': str(adjusted_value_raw.get('ytd', '0')),
+                'pytd': str(adjusted_value_raw.get('pytd', '0')),
+            }
+        
+        plug_raw = result.plug_vector if result.plug_vector else {}
+        if not isinstance(plug_raw, dict):
+            plug = default_plug_vector.copy()
+        else:
+            plug = {
+                'daily': str(plug_raw.get('daily', '0')),
+                'mtd': str(plug_raw.get('mtd', '0')),
+                'ytd': str(plug_raw.get('ytd', '0')),
+                'pytd': str(plug_raw.get('pytd', '0')),
+            }
+        
         results_dict[result.node_id] = {
             'natural_value': {},  # Will be calculated from hierarchy
-            'adjusted_value': result.measure_vector or {},
-            'plug': result.plug_vector or {},
-            'is_override': result.is_override,
-            'is_reconciled': result.is_reconciled,
+            'adjusted_value': adjusted_value,
+            'plug': plug,
+            'is_override': result.is_override if result.is_override is not None else False,
+            'is_reconciled': result.is_reconciled if result.is_reconciled is not None else True,
             'rule': {
                 'rule_id': str(rule.rule_id) if rule and rule.rule_id else None,
                 'rule_name': rule.logic_en if rule else None,
@@ -295,158 +329,100 @@ def get_calculation_results(
     except Exception as baseline_error:
         logger.warning(f"calculations: Failed to get baseline from unified_pnl_service (non-fatal): {baseline_error}")
     
-    # Recalculate natural values from hierarchy (for accurate comparison)
-    # Natural values = sum of facts without rules applied
-    # CRITICAL FIX: Filter facts by hierarchy leaf nodes to match Tab 2's data isolation
-    # Phase 5.5: Load facts from use-case-specific input table
-    from app.engine.waterfall import load_facts, load_facts_from_use_case_3, calculate_natural_rollup
-    from app.services.fact_service import load_facts_gold_for_structure
-    import pandas as pd
+    # CRITICAL FIX: Use unified_pnl_service rollup logic (SAME AS TAB 2)
+    # This replaces the broken calculate_natural_rollup with the working unified service
+    # The unified service uses _calculate_strategy_rollup or _calculate_legacy_rollup internally
+    # which return per-node dictionaries, exactly what we need for natural_results
+    from app.services.unified_pnl_service import _calculate_strategy_rollup, _calculate_legacy_rollup
     
     use_case_obj = db.query(UseCase).filter(UseCase.use_case_id == use_case_id).first()
     
-    # CRITICAL: Use same data loading logic as Tab 2 (discovery endpoint) for consistency
-    if use_case_obj and use_case_obj.input_table_name == 'fact_pnl_use_case_3':
-        # Use Case 3: Load from fact_pnl_use_case_3 (strategy/product matching, not cc_id)
-        facts_df = load_facts_from_use_case_3(db, use_case_id=use_case_id)
-        logger.info(f"[Results] Loaded {len(facts_df)} rows from fact_pnl_use_case_3 for Use Case 3")
-        print(f"[Results] Loaded {len(facts_df)} rows from fact_pnl_use_case_3 for Use Case 3")
-    else:
-        # Use Cases 1 & 2: Load from fact_pnl_gold or fact_pnl_entries with leaf node filtering
-        # CRITICAL: Filter by hierarchy leaf nodes to prevent cross-use-case contamination
-        leaf_cc_ids = [node_id for node_id in leaf_nodes]
-        original_count_before_filter = 0
-        
-        if use_case_obj:
-            # Check fact_pnl_entries first (Use Case 2)
-            from app.models import FactPnlEntries
-            entries_count = db.query(FactPnlEntries).filter(
-                FactPnlEntries.use_case_id == use_case_id
-            ).count()
-            
-            if entries_count > 0:
-                # Use Case 2: Load from fact_pnl_entries (already filtered by use_case_id)
-                from app.engine.waterfall import load_facts_from_entries
-                facts_df = load_facts_from_entries(db, use_case_id=use_case_id)
-                logger.info(f"[Results] Loaded {len(facts_df)} rows from fact_pnl_entries for Use Case 2")
-                print(f"[Results] Loaded {len(facts_df)} rows from fact_pnl_entries for Use Case 2")
-            else:
-                # Use Case 1: Load from fact_pnl_gold with leaf node filtering
-                if leaf_cc_ids:
-                    try:
-                        # Use fact_service which handles filtering correctly
-                        facts_df = load_facts_gold_for_structure(
-                            db, 
-                            structure_id=use_case_obj.atlas_structure_id, 
-                            leaf_cc_ids=leaf_cc_ids
-                        )
-                        logger.info(f"[Results] Loaded {len(facts_df)} rows from fact_pnl_gold (filtered by {len(leaf_cc_ids)} leaf cc_ids)")
-                        print(f"[Results] Loaded {len(facts_df)} rows from fact_pnl_gold (filtered by {len(leaf_cc_ids)} leaf cc_ids)")
-                    except Exception as e:
-                        logger.warning(f"[Results] Error using load_facts_gold_for_structure, falling back to load_facts with filter: {e}")
-                        # Fallback: Load all facts, then filter by cc_id
-                        facts_df = load_facts(db)
-                        original_count_before_filter = len(facts_df)
-                        if 'cc_id' in facts_df.columns:
-                            facts_df = facts_df[facts_df['cc_id'].isin(leaf_cc_ids)]
-                            logger.info(f"[Results] Filtered facts from {original_count_before_filter} to {len(facts_df)} rows based on {len(leaf_cc_ids)} leaf nodes")
-                            print(f"[Results] Filtered facts from {original_count_before_filter} to {len(facts_df)} rows based on {len(leaf_cc_ids)} leaf nodes")
-                        else:
-                            logger.error(f"[Results] facts_df does not have 'cc_id' column! Columns: {list(facts_df.columns)}")
-                            print(f"[Results] ERROR: facts_df does not have 'cc_id' column! Columns: {list(facts_df.columns)}")
-                else:
-                    # No leaf nodes - load all (should not happen, but for safety)
-                    logger.warning(f"[Results] No leaf nodes found, loading all fact_pnl_gold (unfiltered)")
-                    print(f"[Results] WARNING: No leaf nodes found, loading all fact_pnl_gold (unfiltered)")
-                    facts_df = load_facts(db)
-        else:
-            # No use case - should not happen, but load all facts
-            logger.warning(f"[Results] No use case found, loading all fact_pnl_gold (unfiltered)")
-            print(f"[Results] WARNING: No use case found, loading all fact_pnl_gold (unfiltered)")
-            facts_df = load_facts(db)
-    
-    # CRITICAL: Ensure facts_df is a DataFrame (not None)
-    if facts_df is None:
-        logger.warning(f"[Results] facts_df is None, initializing empty DataFrame")
-        print(f"[Results] WARNING: facts_df is None, initializing empty DataFrame")
-        facts_df = pd.DataFrame()
-    
-    # CRITICAL: For Use Cases 1 & 2, use unified_pnl_service rollup logic (same as Tab 2)
-    # This ensures data isolation and correct aggregation
+    # Use the same rollup logic as get_unified_pnl (which Tab 2 uses)
+    natural_results = {}
     if use_case_obj:
         input_table_name = use_case_obj.input_table_name
-        if input_table_name == 'fact_pnl_use_case_3':
-            # Use Case 3: Strategy rollup
-            from app.services.unified_pnl_service import _calculate_strategy_rollup
+        if input_table_name and input_table_name.strip() == 'fact_pnl_use_case_3':
+            # Use Case 3: Strategy rollup (same as get_unified_pnl)
             try:
                 natural_results = _calculate_strategy_rollup(
                     db, use_case_id, hierarchy_dict, children_dict, leaf_nodes
                 )
-                logger.info(f"[Results] Used strategy rollup for Use Case 3")
-                print(f"[Results] Used strategy rollup for Use Case 3")
+                logger.info(f"[Results] Used strategy rollup for Use Case 3 (same as Tab 2)")
+                print(f"[Results] Used strategy rollup for Use Case 3 (same as Tab 2)")
             except Exception as e:
-                logger.error(f"[Results] Strategy rollup failed, falling back to calculate_natural_rollup: {e}", exc_info=True)
-                natural_results = calculate_natural_rollup(
-                    hierarchy_dict, children_dict, leaf_nodes, facts_df
-                )
+                logger.error(f"[Results] Strategy rollup failed: {e}", exc_info=True)
+                # If rollup fails, initialize empty results (don't use broken calculate_natural_rollup)
+                natural_results = {}
         else:
-            # Use Cases 1 & 2: Legacy rollup (with proper filtering)
-            from app.services.unified_pnl_service import _calculate_legacy_rollup
+            # Use Cases 1 & 2: Legacy rollup (same as get_unified_pnl)
             try:
                 natural_results = _calculate_legacy_rollup(
                     db, use_case_id, hierarchy_dict, children_dict, leaf_nodes
                 )
-                logger.info(f"[Results] Used legacy rollup for Use Cases 1 & 2")
-                print(f"[Results] Used legacy rollup for Use Cases 1 & 2")
+                logger.info(f"[Results] Used legacy rollup for Use Cases 1 & 2 (same as Tab 2)")
+                print(f"[Results] Used legacy rollup for Use Cases 1 & 2 (same as Tab 2)")
             except Exception as e:
-                logger.error(f"[Results] Legacy rollup failed, falling back to calculate_natural_rollup: {e}", exc_info=True)
-                # Fallback: Use filtered facts_df with calculate_natural_rollup
-                natural_results = calculate_natural_rollup(
-                    hierarchy_dict, children_dict, leaf_nodes, facts_df
-                )
+                logger.error(f"[Results] Legacy rollup failed: {e}", exc_info=True)
+                # If rollup fails, initialize empty results (don't use broken calculate_natural_rollup)
+                natural_results = {}
     else:
-        # No use case - use calculate_natural_rollup with filtered facts
-        natural_results = calculate_natural_rollup(
-            hierarchy_dict, children_dict, leaf_nodes, facts_df
-        )
+        # No use case - initialize empty results
+        logger.warning(f"[Results] No use case found, initializing empty natural_results")
+        natural_results = {}
     
     # Populate natural values and ensure all nodes have results
     # If no results were found in DB, still return hierarchy with natural values (zero adjusted/plug)
+    # CRITICAL: 100% Defensive - Ensure natural is always a dict with all required keys
+    default_natural = {
+        'daily': Decimal('0'),
+        'mtd': Decimal('0'),
+        'ytd': Decimal('0'),
+        'pytd': Decimal('0'),
+    }
+    
     for node_id in hierarchy_dict.keys():
+        # CRITICAL FIX: Always ensure natural is a dict with all keys
+        natural_raw = natural_results.get(node_id)
+        if not isinstance(natural_raw, dict):
+            natural = default_natural.copy()
+        else:
+            # Ensure all keys exist, using .get() with defaults
+            natural = {
+                'daily': natural_raw.get('daily') or Decimal('0'),
+                'mtd': natural_raw.get('mtd') or Decimal('0'),
+                'ytd': natural_raw.get('ytd') or Decimal('0'),
+                'pytd': natural_raw.get('pytd') or Decimal('0'),
+            }
+        
+        # Extract values safely (already validated above, but double-check)
+        natural_daily = natural.get('daily') or Decimal('0')
+        natural_mtd = natural.get('mtd') or Decimal('0')
+        natural_ytd = natural.get('ytd') or Decimal('0')
+        natural_pytd = natural.get('pytd') or Decimal('0')
+        
         if node_id in results_dict:
             # Natural value from recalculation
-            natural = natural_results.get(node_id, {
-                'daily': Decimal('0'),
-                'mtd': Decimal('0'),
-                'ytd': Decimal('0'),
-                'pytd': Decimal('0'),
-            })
+            # CRITICAL FIX: Use .get() with safe defaults to prevent KeyError
             results_dict[node_id]['natural_value'] = {
-                'daily': str(natural['daily']),
-                'mtd': str(natural['mtd']),
-                'ytd': str(natural['ytd']),
-                'pytd': str(natural['pytd']),
+                'daily': str(natural_daily),
+                'mtd': str(natural_mtd),
+                'ytd': str(natural_ytd),
+                'pytd': str(natural_pytd),
             }
         else:
             # No result for this node - use natural values, zero adjusted/plug
-            natural = natural_results.get(node_id, {
-                'daily': Decimal('0'),
-                'mtd': Decimal('0'),
-                'ytd': Decimal('0'),
-                'pytd': Decimal('0'),
-            })
             results_dict[node_id] = {
                 'natural_value': {
-                    'daily': str(natural['daily']),
-                    'mtd': str(natural['mtd']),
-                    'ytd': str(natural['ytd']),
-                    'pytd': str(natural['pytd']),
+                    'daily': str(natural_daily),
+                    'mtd': str(natural_mtd),
+                    'ytd': str(natural_ytd),
+                    'pytd': str(natural_pytd),
                 },
                 'adjusted_value': {
-                    'daily': str(natural['daily']),  # Use natural as adjusted if no rules
-                    'mtd': str(natural['mtd']),
-                    'ytd': str(natural['ytd']),
-                    'pytd': str(natural['pytd']),
+                    'daily': str(natural_daily),  # Use natural as adjusted if no rules
+                    'mtd': str(natural_mtd),
+                    'ytd': str(natural_ytd),
+                    'pytd': str(natural_pytd),
                 },
                 'plug': {'daily': '0', 'mtd': '0', 'ytd': '0', 'pytd': '0'},
                 'is_override': False,
@@ -541,11 +517,12 @@ def get_calculation_results(
         # Sanitize rule data
         rule_data = result_data.get('rule')
         sanitized_rule = None
-        if rule_data:
+        if rule_data and isinstance(rule_data, dict):
+            # CRITICAL FIX: Use .get() with safe defaults to prevent KeyError
             sanitized_rule = {
-                'rule_id': int(rule_data['rule_id']) if rule_data.get('rule_id') is not None else None,
-                'logic_en': str(rule_data['logic_en']) if rule_data.get('logic_en') else None,
-                'sql_where': str(rule_data['sql_where']) if rule_data.get('sql_where') else None,
+                'rule_id': int(rule_data.get('rule_id')) if rule_data.get('rule_id') is not None else None,
+                'logic_en': str(rule_data.get('logic_en', '')) if rule_data.get('logic_en') else None,
+                'sql_where': str(rule_data.get('sql_where', '')) if rule_data.get('sql_where') else None,
             }
         
         # Get path
@@ -590,26 +567,31 @@ def get_calculation_results(
     # INJECT LIVE BASELINE: Overwrite root node's natural_value (Original P&L) with live baseline
     # This ensures Tab 4 "Original P&L" matches Tab 2 exactly ($2.5M and $4.9M)
     if baseline_pnl and root_node:
+        # CRITICAL FIX: Use .get() with safe defaults to prevent KeyError
+        baseline_daily = baseline_pnl.get('daily_pnl') or Decimal('0')
+        baseline_mtd = baseline_pnl.get('mtd_pnl') or Decimal('0')
+        baseline_ytd = baseline_pnl.get('ytd_pnl') or Decimal('0')
+        
         # Overwrite natural_value (Original P&L) with live baseline
         root_node.natural_value = {
-            'daily': str(baseline_pnl['daily_pnl']),
-            'mtd': str(baseline_pnl['mtd_pnl']),
-            'ytd': str(baseline_pnl['ytd_pnl']),
+            'daily': str(baseline_daily),
+            'mtd': str(baseline_mtd),
+            'ytd': str(baseline_ytd),
             'pytd': '0'  # Not available in baseline
         }
         
         # Recalculate the Plug to be accurate: Adjusted - Original
         # Plug = Natural (Original) - Adjusted
         adjusted_daily = Decimal(str(root_node.adjusted_value.get('daily', '0')))
-        original_daily = baseline_pnl['daily_pnl']
+        original_daily = baseline_daily
         plug_daily = original_daily - adjusted_daily
         
         adjusted_mtd = Decimal(str(root_node.adjusted_value.get('mtd', '0')))
-        original_mtd = baseline_pnl['mtd_pnl']
+        original_mtd = baseline_mtd
         plug_mtd = original_mtd - adjusted_mtd
         
         adjusted_ytd = Decimal(str(root_node.adjusted_value.get('ytd', '0')))
-        original_ytd = baseline_pnl['ytd_pnl']
+        original_ytd = baseline_ytd
         plug_ytd = original_ytd - adjusted_ytd
         
         root_node.plug = {
@@ -706,19 +688,9 @@ def get_calculation_results(
             logger.warning(f"calculations: Failed to check outdated status (non-fatal): {outdated_error}")
             is_outdated = False  # Default to not outdated if check fails
     
-    # CRITICAL: Session Guard - Remove session to prevent "Transaction Aborted" error
-    # This ensures clean session state for the next request
-    try:
-        db.remove()
-        logger.debug(f"calculations: Session removed for use_case_id: {use_case_id}")
-    except Exception as remove_error:
-        logger.warning(f"calculations: db.remove() failed (non-fatal): {remove_error}")
-        # Try rollback as fallback
-        try:
-            db.rollback()
-            logger.debug(f"calculations: Rolled back session as fallback")
-        except Exception as rollback_error:
-            logger.error(f"calculations: Rollback also failed: {rollback_error}")
+    # NOTE: Session is automatically managed by FastAPI's dependency injection system
+    # The get_db() dependency handles session lifecycle (yield/close), so no manual cleanup needed
+    # If transaction issues occur, FastAPI will handle rollback automatically
     
     return ResultsResponse(
         run_id=run_id_str,

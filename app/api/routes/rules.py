@@ -120,6 +120,44 @@ def create_rule(
                 db.commit()
                 db.refresh(new_rule)
                 rule = new_rule
+        elif rule_data.rule_type == 'NODE_ARITHMETIC' and rule_data.rule_expression:
+            # Phase 5.7: Math rule mode (Type 3)
+            logger.info(f"Creating math rule for use case {use_case_id}, node {rule_data.node_id}")
+            
+            # Check if rule already exists for this node
+            existing_rule = db.query(MetadataRule).filter(
+                MetadataRule.use_case_id == use_case_id,
+                MetadataRule.node_id == rule_data.node_id
+            ).first()
+            
+            if existing_rule:
+                # Update existing rule
+                logger.info(f"Updating existing rule {existing_rule.rule_id} for node {rule_data.node_id}")
+                existing_rule.rule_type = rule_data.rule_type
+                existing_rule.rule_expression = rule_data.rule_expression
+                existing_rule.rule_dependencies = rule_data.rule_dependencies
+                existing_rule.last_modified_by = rule_data.last_modified_by
+                # Clear SQL fields for math rules
+                existing_rule.sql_where = None
+                existing_rule.predicate_json = None
+                db.commit()
+                db.refresh(existing_rule)
+                rule = existing_rule
+            else:
+                # Create new math rule
+                logger.info(f"Creating new math rule for node {rule_data.node_id}")
+                new_rule = MetadataRule(
+                    use_case_id=use_case_id,
+                    node_id=rule_data.node_id,
+                    rule_type=rule_data.rule_type,
+                    rule_expression=rule_data.rule_expression,
+                    rule_dependencies=rule_data.rule_dependencies,
+                    last_modified_by=rule_data.last_modified_by
+                )
+                db.add(new_rule)
+                db.commit()
+                db.refresh(new_rule)
+                rule = new_rule
         elif rule_data.sql_where:
             # Direct SQL mode (advanced, for testing)
             raise HTTPException(
@@ -129,7 +167,7 @@ def create_rule(
         else:
             raise HTTPException(
                 status_code=400,
-                detail="Must provide either 'conditions' (manual), 'logic_en' (GenAI), or 'sql_where' (direct)"
+                detail="Must provide either 'conditions' (manual), 'logic_en' (GenAI), 'rule_expression' (math), or 'sql_where' (direct)"
             )
         
         # Get node name for response
@@ -146,7 +184,12 @@ def create_rule(
             sql_where=rule.sql_where if rule.sql_where else None,
             last_modified_by=rule.last_modified_by,
             created_at=rule.created_at.isoformat(),
-            last_modified_at=rule.last_modified_at.isoformat()
+            last_modified_at=rule.last_modified_at.isoformat(),
+            # Phase 5.7: Math Engine fields - explicitly map from database model
+            rule_type=rule.rule_type if rule.rule_type else None,
+            rule_expression=rule.rule_expression if rule.rule_expression else None,
+            measure_name=rule.measure_name if rule.measure_name else None,
+            rule_dependencies=rule.rule_dependencies if rule.rule_dependencies else None
         )
         
     except ValueError as e:
@@ -201,7 +244,12 @@ def list_rules(
             sql_where=rule.sql_where if rule.sql_where else None,
             last_modified_by=rule.last_modified_by,
             created_at=rule.created_at.isoformat(),
-            last_modified_at=rule.last_modified_at.isoformat()
+            last_modified_at=rule.last_modified_at.isoformat(),
+            # Phase 5.7: Math Engine fields - explicitly map from database model
+            rule_type=rule.rule_type if rule.rule_type else None,
+            rule_expression=rule.rule_expression if rule.rule_expression else None,
+            measure_name=rule.measure_name if rule.measure_name else None,
+            rule_dependencies=rule.rule_dependencies if rule.rule_dependencies else None
         ))
     
     return result
@@ -215,18 +263,22 @@ def preview_rule(
     """
     Preview the impact of a rule by counting affected rows.
     
-    This endpoint allows users to see how many rows in fact_pnl_gold
+    This endpoint allows users to see how many rows in the appropriate fact table
     would be affected by a SQL WHERE clause before saving the rule.
     
+    The table is determined by:
+    - If use_case_id is provided: Uses use_case.input_table_name (e.g., 'fact_pnl_use_case_3')
+    - Otherwise: Defaults to 'fact_pnl_gold'
+    
     Args:
-        request: RulePreviewRequest with sql_where
+        request: RulePreviewRequest with sql_where and optional use_case_id
         db: Database session
     
     Returns:
         RulePreviewResponse with affected row count and percentage
     """
     try:
-        return preview_rule_impact(request.sql_where, db)
+        return preview_rule_impact(request.sql_where, db, use_case_id=request.use_case_id)
     except ValueError as e:
         logger.error(f"Validation error previewing rule: {e}")
         raise HTTPException(status_code=400, detail=str(e))
@@ -371,15 +423,49 @@ def bulk_create_rules(
         for node_id in request.node_ids:
             try:
                 # Create RuleCreate object for this node
+                # Phase 5.7: Include math rule fields if provided
                 rule_data = RuleCreate(
                     node_id=node_id,
                     last_modified_by=request.last_modified_by,
                     conditions=request.conditions,
-                    logic_en=request.logic_en
+                    logic_en=request.logic_en,
+                    rule_type=request.rule_type,
+                    rule_expression=request.rule_expression,
+                    rule_dependencies=request.rule_dependencies,
+                    sql_where=request.sql_where
                 )
                 
                 # Create rule using existing logic
-                if rule_data.conditions:
+                if rule_data.rule_type == 'NODE_ARITHMETIC' and rule_data.rule_expression:
+                    # Phase 5.7: Math rule mode (Type 3)
+                    existing_rule = db.query(MetadataRule).filter(
+                        MetadataRule.use_case_id == use_case_id,
+                        MetadataRule.node_id == node_id
+                    ).first()
+                    
+                    if existing_rule:
+                        existing_rule.rule_type = rule_data.rule_type
+                        existing_rule.rule_expression = rule_data.rule_expression
+                        existing_rule.rule_dependencies = rule_data.rule_dependencies
+                        existing_rule.last_modified_by = rule_data.last_modified_by
+                        existing_rule.sql_where = None
+                        existing_rule.predicate_json = None
+                        db.commit()
+                        db.refresh(existing_rule)
+                        rule = existing_rule
+                    else:
+                        rule = MetadataRule(
+                            use_case_id=use_case_id,
+                            node_id=node_id,
+                            rule_type=rule_data.rule_type,
+                            rule_expression=rule_data.rule_expression,
+                            rule_dependencies=rule_data.rule_dependencies,
+                            last_modified_by=rule_data.last_modified_by
+                        )
+                        db.add(rule)
+                        db.commit()
+                        db.refresh(rule)
+                elif rule_data.conditions:
                     rule = create_manual_rule(use_case_id, rule_data, db)
                 elif rule_data.logic_en:
                     # Translate and create
@@ -438,7 +524,12 @@ def bulk_create_rules(
                     sql_where=rule.sql_where if rule.sql_where else None,
                     last_modified_by=rule.last_modified_by,
                     created_at=rule.created_at.isoformat(),
-                    last_modified_at=rule.last_modified_at.isoformat()
+                    last_modified_at=rule.last_modified_at.isoformat(),
+                    # Phase 5.7: Math Engine fields - explicitly map from database model
+                    rule_type=rule.rule_type if rule.rule_type else None,
+                    rule_expression=rule.rule_expression if rule.rule_expression else None,
+                    measure_name=rule.measure_name if rule.measure_name else None,
+                    rule_dependencies=rule.rule_dependencies if rule.rule_dependencies else None
                 ))
                 success_count += 1
                 
@@ -579,7 +670,12 @@ def get_rule_stack(
                 sql_where=direct_rule_obj.sql_where if direct_rule_obj.sql_where else None,
                 last_modified_by=direct_rule_obj.last_modified_by,
                 created_at=direct_rule_obj.created_at.isoformat(),
-                last_modified_at=direct_rule_obj.last_modified_at.isoformat()
+                last_modified_at=direct_rule_obj.last_modified_at.isoformat(),
+                # Phase 5.7: Math Engine fields - explicitly map from database model
+                rule_type=direct_rule_obj.rule_type if direct_rule_obj.rule_type else None,
+                rule_expression=direct_rule_obj.rule_expression if direct_rule_obj.rule_expression else None,
+                measure_name=direct_rule_obj.measure_name if direct_rule_obj.measure_name else None,
+                rule_dependencies=direct_rule_obj.rule_dependencies if direct_rule_obj.rule_dependencies else None
             )
         
         # Get path array to find parent nodes (traverse up to root)
@@ -642,7 +738,12 @@ def get_rule_stack(
                         sql_where=parent_rule_obj.sql_where if parent_rule_obj.sql_where else None,
                         last_modified_by=parent_rule_obj.last_modified_by,
                         created_at=parent_rule_obj.created_at.isoformat(),
-                        last_modified_at=parent_rule_obj.last_modified_at.isoformat()
+                        last_modified_at=parent_rule_obj.last_modified_at.isoformat(),
+                        # Phase 5.7: Math Engine fields - explicitly map from database model
+                        rule_type=parent_rule_obj.rule_type if parent_rule_obj.rule_type else None,
+                        rule_expression=parent_rule_obj.rule_expression if parent_rule_obj.rule_expression else None,
+                        measure_name=parent_rule_obj.measure_name if parent_rule_obj.measure_name else None,
+                        rule_dependencies=parent_rule_obj.rule_dependencies if parent_rule_obj.rule_dependencies else None
                     ))
         
         # Check for conflicts: if child has direct rule and parent also has rule
