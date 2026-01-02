@@ -297,16 +297,118 @@ def get_calculation_results(
     
     # Recalculate natural values from hierarchy (for accurate comparison)
     # Natural values = sum of facts without rules applied
+    # CRITICAL FIX: Filter facts by hierarchy leaf nodes to match Tab 2's data isolation
     # Phase 5.5: Load facts from use-case-specific input table
     from app.engine.waterfall import load_facts, load_facts_from_use_case_3, calculate_natural_rollup
+    from app.services.fact_service import load_facts_gold_for_structure
+    import pandas as pd
+    
     use_case_obj = db.query(UseCase).filter(UseCase.use_case_id == use_case_id).first()
+    
+    # CRITICAL: Use same data loading logic as Tab 2 (discovery endpoint) for consistency
     if use_case_obj and use_case_obj.input_table_name == 'fact_pnl_use_case_3':
+        # Use Case 3: Load from fact_pnl_use_case_3 (strategy/product matching, not cc_id)
         facts_df = load_facts_from_use_case_3(db, use_case_id=use_case_id)
+        logger.info(f"[Results] Loaded {len(facts_df)} rows from fact_pnl_use_case_3 for Use Case 3")
+        print(f"[Results] Loaded {len(facts_df)} rows from fact_pnl_use_case_3 for Use Case 3")
     else:
-        facts_df = load_facts(db)
-    natural_results = calculate_natural_rollup(
-        hierarchy_dict, children_dict, leaf_nodes, facts_df
-    )
+        # Use Cases 1 & 2: Load from fact_pnl_gold or fact_pnl_entries with leaf node filtering
+        # CRITICAL: Filter by hierarchy leaf nodes to prevent cross-use-case contamination
+        leaf_cc_ids = [node_id for node_id in leaf_nodes]
+        original_count_before_filter = 0
+        
+        if use_case_obj:
+            # Check fact_pnl_entries first (Use Case 2)
+            from app.models import FactPnlEntries
+            entries_count = db.query(FactPnlEntries).filter(
+                FactPnlEntries.use_case_id == use_case_id
+            ).count()
+            
+            if entries_count > 0:
+                # Use Case 2: Load from fact_pnl_entries (already filtered by use_case_id)
+                from app.engine.waterfall import load_facts_from_entries
+                facts_df = load_facts_from_entries(db, use_case_id=use_case_id)
+                logger.info(f"[Results] Loaded {len(facts_df)} rows from fact_pnl_entries for Use Case 2")
+                print(f"[Results] Loaded {len(facts_df)} rows from fact_pnl_entries for Use Case 2")
+            else:
+                # Use Case 1: Load from fact_pnl_gold with leaf node filtering
+                if leaf_cc_ids:
+                    try:
+                        # Use fact_service which handles filtering correctly
+                        facts_df = load_facts_gold_for_structure(
+                            db, 
+                            structure_id=use_case_obj.atlas_structure_id, 
+                            leaf_cc_ids=leaf_cc_ids
+                        )
+                        logger.info(f"[Results] Loaded {len(facts_df)} rows from fact_pnl_gold (filtered by {len(leaf_cc_ids)} leaf cc_ids)")
+                        print(f"[Results] Loaded {len(facts_df)} rows from fact_pnl_gold (filtered by {len(leaf_cc_ids)} leaf cc_ids)")
+                    except Exception as e:
+                        logger.warning(f"[Results] Error using load_facts_gold_for_structure, falling back to load_facts with filter: {e}")
+                        # Fallback: Load all facts, then filter by cc_id
+                        facts_df = load_facts(db)
+                        original_count_before_filter = len(facts_df)
+                        if 'cc_id' in facts_df.columns:
+                            facts_df = facts_df[facts_df['cc_id'].isin(leaf_cc_ids)]
+                            logger.info(f"[Results] Filtered facts from {original_count_before_filter} to {len(facts_df)} rows based on {len(leaf_cc_ids)} leaf nodes")
+                            print(f"[Results] Filtered facts from {original_count_before_filter} to {len(facts_df)} rows based on {len(leaf_cc_ids)} leaf nodes")
+                        else:
+                            logger.error(f"[Results] facts_df does not have 'cc_id' column! Columns: {list(facts_df.columns)}")
+                            print(f"[Results] ERROR: facts_df does not have 'cc_id' column! Columns: {list(facts_df.columns)}")
+                else:
+                    # No leaf nodes - load all (should not happen, but for safety)
+                    logger.warning(f"[Results] No leaf nodes found, loading all fact_pnl_gold (unfiltered)")
+                    print(f"[Results] WARNING: No leaf nodes found, loading all fact_pnl_gold (unfiltered)")
+                    facts_df = load_facts(db)
+        else:
+            # No use case - should not happen, but load all facts
+            logger.warning(f"[Results] No use case found, loading all fact_pnl_gold (unfiltered)")
+            print(f"[Results] WARNING: No use case found, loading all fact_pnl_gold (unfiltered)")
+            facts_df = load_facts(db)
+    
+    # CRITICAL: Ensure facts_df is a DataFrame (not None)
+    if facts_df is None:
+        logger.warning(f"[Results] facts_df is None, initializing empty DataFrame")
+        print(f"[Results] WARNING: facts_df is None, initializing empty DataFrame")
+        facts_df = pd.DataFrame()
+    
+    # CRITICAL: For Use Cases 1 & 2, use unified_pnl_service rollup logic (same as Tab 2)
+    # This ensures data isolation and correct aggregation
+    if use_case_obj:
+        input_table_name = use_case_obj.input_table_name
+        if input_table_name == 'fact_pnl_use_case_3':
+            # Use Case 3: Strategy rollup
+            from app.services.unified_pnl_service import _calculate_strategy_rollup
+            try:
+                natural_results = _calculate_strategy_rollup(
+                    db, use_case_id, hierarchy_dict, children_dict, leaf_nodes
+                )
+                logger.info(f"[Results] Used strategy rollup for Use Case 3")
+                print(f"[Results] Used strategy rollup for Use Case 3")
+            except Exception as e:
+                logger.error(f"[Results] Strategy rollup failed, falling back to calculate_natural_rollup: {e}", exc_info=True)
+                natural_results = calculate_natural_rollup(
+                    hierarchy_dict, children_dict, leaf_nodes, facts_df
+                )
+        else:
+            # Use Cases 1 & 2: Legacy rollup (with proper filtering)
+            from app.services.unified_pnl_service import _calculate_legacy_rollup
+            try:
+                natural_results = _calculate_legacy_rollup(
+                    db, use_case_id, hierarchy_dict, children_dict, leaf_nodes
+                )
+                logger.info(f"[Results] Used legacy rollup for Use Cases 1 & 2")
+                print(f"[Results] Used legacy rollup for Use Cases 1 & 2")
+            except Exception as e:
+                logger.error(f"[Results] Legacy rollup failed, falling back to calculate_natural_rollup: {e}", exc_info=True)
+                # Fallback: Use filtered facts_df with calculate_natural_rollup
+                natural_results = calculate_natural_rollup(
+                    hierarchy_dict, children_dict, leaf_nodes, facts_df
+                )
+    else:
+        # No use case - use calculate_natural_rollup with filtered facts
+        natural_results = calculate_natural_rollup(
+            hierarchy_dict, children_dict, leaf_nodes, facts_df
+        )
     
     # Populate natural values and ensure all nodes have results
     # If no results were found in DB, still return hierarchy with natural values (zero adjusted/plug)
