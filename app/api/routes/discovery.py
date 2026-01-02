@@ -13,9 +13,9 @@ from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_db
 from app.api.schemas import DiscoveryResponse, HierarchyNode, ReconciliationData
-from app.engine.waterfall import calculate_natural_rollup, load_facts, load_facts_from_entries, load_hierarchy
+from app.engine.waterfall import calculate_natural_rollup, load_facts, load_facts_from_entries, load_hierarchy, load_facts_from_use_case_3
 from app.services.fact_service import load_facts_for_use_case, load_facts_gold_for_structure, verify_reconciliation
-from app.services.unified_pnl_service import get_unified_pnl
+from app.services.unified_pnl_service import get_unified_pnl, _calculate_legacy_rollup, _calculate_strategy_rollup, _calculate_legacy_rollup, _calculate_strategy_rollup
 from app.models import UseCase
 
 router = APIRouter(prefix="/api/v1", tags=["discovery"])
@@ -664,53 +664,98 @@ def get_discovery_view(
             debug_info = {}
             
             if use_case:
-                # MANDATORY: Check fact_pnl_entries FIRST for the given use_case_id
-                entries_count = db.query(FactPnlEntries).filter(
-                    FactPnlEntries.use_case_id == use_case.use_case_id
-                ).count()
+                # Phase 5.5: Check input_table_name FIRST to route to correct table
+                input_table_name = use_case.input_table_name
+                facts_df = None
                 
-                logger.info(f"Discovery: fact_pnl_entries count for use_case_id {use_case.use_case_id}: {entries_count}")
-                
-                if entries_count > 0:
-                    # Use fact_pnl_entries (Project Sterling and similar)
-                    # CRITICAL: Use fact_service with strict use_case_id filtering
-                    logger.info(f"Discovery: Loading facts from fact_pnl_entries for use case {use_case.use_case_id} ({entries_count} rows)")
+                if input_table_name == 'fact_pnl_use_case_3':
+                    # Use Case 3: Load from fact_pnl_use_case_3
+                    logger.info(f"Discovery: Loading facts from fact_pnl_use_case_3 for use case {use_case.use_case_id}")
                     try:
-                        facts_df = load_facts_for_use_case(db, use_case_id=use_case.use_case_id)
-                        source_table = "fact_pnl_entries"
+                        facts_df = load_facts_from_use_case_3(db, use_case_id=use_case.use_case_id)
+                        source_table = "fact_pnl_use_case_3"
                         debug_info = {
                             "source_table": source_table,
                             "row_count": len(facts_df),
                             "use_case_id": str(use_case.use_case_id),
                             "use_case_name": use_case.name
                         }
-                        logger.info(f"Discovery: Loaded {len(facts_df)} fact rows from fact_pnl_entries via fact_service")
-                        
-                        # Verification: Check total P&L
+                        logger.info(f"Discovery: Loaded {len(facts_df)} fact rows from fact_pnl_use_case_3")
                         if not facts_df.empty:
-                            total_daily = facts_df['daily_pnl'].sum()
+                            # Use Case 3 has pnl_daily column
+                            total_daily = facts_df['pnl_daily'].sum() if 'pnl_daily' in facts_df.columns else (facts_df['daily_pnl'].sum() if 'daily_pnl' in facts_df.columns else Decimal('0'))
                             logger.info(f"Discovery: Total daily_pnl in loaded facts: {total_daily}")
-                            # Also check if we should filter by category_code from hierarchy
-                            if 'category_code' in facts_df.columns:
-                                unique_categories = facts_df['category_code'].unique()[:10]
-                                logger.info(f"Discovery: Sample category_codes in loaded facts: {list(unique_categories)}")
+                        else:
+                            logger.warning(f"Discovery: load_facts_from_use_case_3 returned empty DataFrame!")
+                            # DO NOT fall through - keep facts_df as empty DataFrame, but don't set to None
+                            # This ensures we don't fall back to fact_pnl_gold
                     except Exception as e:
-                        logger.error(f"Discovery: Error loading facts via fact_service: {e}", exc_info=True)
+                        logger.error(f"Discovery: Error loading facts from fact_pnl_use_case_3: {e}", exc_info=True)
                         try:
                             db.rollback()
                         except Exception as rollback_error:
                             logger.error(f"Discovery: Failed to rollback: {rollback_error}")
-                        # Fallback to old method (should not happen, but for safety)
-                        logger.warning(f"Discovery: Falling back to load_facts_from_entries")
-                        facts_df = load_facts_from_entries(db, use_case_id=use_case.use_case_id)
-                        source_table = "fact_pnl_entries"
+                        # Set to empty DataFrame instead of None to prevent fallback
+                        import pandas as pd
+                        facts_df = pd.DataFrame()
+                        source_table = "fact_pnl_use_case_3"
                         debug_info = {
                             "source_table": source_table,
-                            "row_count": len(facts_df),
+                            "row_count": 0,
                             "use_case_id": str(use_case.use_case_id),
                             "use_case_name": use_case.name,
-                            "fallback": True
+                            "error": str(e)
                         }
+                
+                # MANDATORY: Check fact_pnl_entries if no custom table was set OR if custom table check failed
+                # CRITICAL: For Use Case 3, if we already loaded from fact_pnl_use_case_3, DO NOT fall back
+                if input_table_name != 'fact_pnl_use_case_3' and (facts_df is None or (facts_df.empty if facts_df is not None else True)):
+                    entries_count = db.query(FactPnlEntries).filter(
+                        FactPnlEntries.use_case_id == use_case.use_case_id
+                    ).count()
+                    
+                    logger.info(f"Discovery: fact_pnl_entries count for use_case_id {use_case.use_case_id}: {entries_count}")
+                    
+                    if entries_count > 0:
+                        # Use fact_pnl_entries (Project Sterling and similar)
+                        # CRITICAL: Use fact_service with strict use_case_id filtering
+                        logger.info(f"Discovery: Loading facts from fact_pnl_entries for use case {use_case.use_case_id} ({entries_count} rows)")
+                        try:
+                            facts_df = load_facts_for_use_case(db, use_case_id=use_case.use_case_id)
+                            source_table = "fact_pnl_entries"
+                            debug_info = {
+                                "source_table": source_table,
+                                "row_count": len(facts_df),
+                                "use_case_id": str(use_case.use_case_id),
+                                "use_case_name": use_case.name
+                            }
+                            logger.info(f"Discovery: Loaded {len(facts_df)} fact rows from fact_pnl_entries via fact_service")
+                            
+                            # Verification: Check total P&L
+                            if not facts_df.empty:
+                                total_daily = facts_df['daily_pnl'].sum()
+                                logger.info(f"Discovery: Total daily_pnl in loaded facts: {total_daily}")
+                                # Also check if we should filter by category_code from hierarchy
+                                if 'category_code' in facts_df.columns:
+                                    unique_categories = facts_df['category_code'].unique()[:10]
+                                    logger.info(f"Discovery: Sample category_codes in loaded facts: {list(unique_categories)}")
+                        except Exception as e:
+                            logger.error(f"Discovery: Error loading facts via fact_service: {e}", exc_info=True)
+                            try:
+                                db.rollback()
+                            except Exception as rollback_error:
+                                logger.error(f"Discovery: Failed to rollback: {rollback_error}")
+                            # Fallback to old method (should not happen, but for safety)
+                            logger.warning(f"Discovery: Falling back to load_facts_from_entries")
+                            facts_df = load_facts_from_entries(db, use_case_id=use_case.use_case_id)
+                            source_table = "fact_pnl_entries"
+                            debug_info = {
+                                "source_table": source_table,
+                                "row_count": len(facts_df),
+                                "use_case_id": str(use_case.use_case_id),
+                                "use_case_name": use_case.name,
+                                "fallback": True
+                            }
                 else:
                     # ONLY fall back to fact_pnl_gold if fact_pnl_entries returns zero rows
                     logger.info(f"Discovery: fact_pnl_entries returned zero rows, falling back to fact_pnl_gold")
@@ -948,53 +993,111 @@ def get_discovery_view(
                     natural_results = calculated_results_dict
                     logger.warning("Discovery: No hierarchy_dict available, using calculated results directly")
             else:
-                # No calculated results - use natural rollups from facts (facts_df already loaded)
-                logger.info(f"Discovery: Calculating natural rollups from {len(facts_df)} fact rows")
-                if facts_df.empty:
-                    logger.warning(f"Discovery: facts_df is empty! Cannot calculate natural rollups.")
-                    natural_results = {node_id: {'daily': Decimal('0'), 'mtd': Decimal('0'), 'ytd': Decimal('0')} for node_id in hierarchy_dict.keys()}
+                # No calculated results - use dual-path rollup logic
+                logger.info(f"Discovery: Calculating rollups using dual-path logic")
+                
+                # Phase 5.6: Use dual-path rollup based on input_table_name
+                if use_case and use_case.input_table_name == 'fact_pnl_use_case_3':
+                    # Use Case 3: Strategy Path
+                    logger.info(f"Discovery: Using Strategy Path rollup for Use Case 3")
+                    print(f"[Discovery] Strategy Path Selected for Use Case 3")
+                    natural_results = _calculate_strategy_rollup(
+                        db, use_case_id, hierarchy_dict, children_dict, leaf_nodes
+                    )
                 else:
+                    # Use Cases 1 & 2: Legacy Path
+                    logger.info(f"Discovery: Using Legacy Path rollup for Use Cases 1 & 2")
+                    print(f"[Discovery] Legacy Path Selected for Use Cases 1 & 2")
+                    if use_case_id:
+                        natural_results = _calculate_legacy_rollup(
+                            db, use_case_id, hierarchy_dict, children_dict, leaf_nodes
+                        )
+                    else:
+                        # Fallback to old calculate_natural_rollup if no use_case_id
+                        logger.warning(f"Discovery: No use_case_id, falling back to calculate_natural_rollup")
+                        if facts_df.empty:
+                            logger.warning(f"Discovery: facts_df is empty! Cannot calculate natural rollups.")
+                            natural_results = {node_id: {'daily': Decimal('0'), 'mtd': Decimal('0'), 'ytd': Decimal('0')} for node_id in hierarchy_dict.keys()}
+                        else:
+                            natural_results = calculate_natural_rollup(
+                                hierarchy_dict, children_dict, leaf_nodes, facts_df
+                            )
+                
+                # Debug: Log total aggregated values
+                total_daily = sum(r.get('daily', Decimal('0')) for r in natural_results.values())
+                logger.info(f"Discovery: Rollup total daily: {total_daily}")
+        except Exception as e:
+            # Fallback to natural rollups if calculated results processing fails
+            logger.error(f"Discovery: Error processing calculated results, falling back to rollups: {e}", exc_info=True)
+            # Try dual-path rollup first
+            if use_case and use_case.input_table_name == 'fact_pnl_use_case_3' and use_case_id:
+                try:
+                    natural_results = _calculate_strategy_rollup(
+                        db, use_case_id, hierarchy_dict, children_dict, leaf_nodes
+                    )
+                except Exception as e2:
+                    logger.error(f"Discovery: Strategy rollup failed, falling back to calculate_natural_rollup: {e2}", exc_info=True)
                     natural_results = calculate_natural_rollup(
                         hierarchy_dict, children_dict, leaf_nodes, facts_df
                     )
-                    # Debug: Log total aggregated values
-                    total_daily = sum(r.get('daily', Decimal('0')) for r in natural_results.values())
-                    logger.info(f"Discovery: Natural rollup total daily: {total_daily}")
-        except Exception as e:
-            # Fallback to natural rollups if calculated results processing fails
-            logger.error(f"Discovery: Error processing calculated results, falling back to natural rollups: {e}", exc_info=True)
-            # facts_df already loaded above
-            natural_results = calculate_natural_rollup(
-                hierarchy_dict, children_dict, leaf_nodes, facts_df
-            )
+            elif use_case_id:
+                try:
+                    natural_results = _calculate_legacy_rollup(
+                        db, use_case_id, hierarchy_dict, children_dict, leaf_nodes
+                    )
+                except Exception as e2:
+                    logger.error(f"Discovery: Legacy rollup failed, falling back to calculate_natural_rollup: {e2}", exc_info=True)
+                    natural_results = calculate_natural_rollup(
+                        hierarchy_dict, children_dict, leaf_nodes, facts_df
+                    )
+            else:
+                # Last resort: use old calculate_natural_rollup
+                natural_results = calculate_natural_rollup(
+                    hierarchy_dict, children_dict, leaf_nodes, facts_df
+                )
         
         # CRITICAL: Get baseline (Original) P&L totals using unified_pnl_service
         # This is the SINGLE SOURCE OF TRUTH for P&L data (Tab 2 and Tab 3)
         baseline_pnl = None
         if use_case_id:
+            print(f"\n[API] {'='*70}")
+            print(f"[API] Received Request for Use Case: {use_case_id} - Calling get_unified_pnl")
+            print(f"[API] {'='*70}")
             try:
                 baseline_pnl = get_unified_pnl(db, use_case_id, pnl_date=None, scenario='ACTUAL')
+                print(f"[API] get_unified_pnl returned: {baseline_pnl}")
+                if '_debug_info' in baseline_pnl:
+                    debug_info_from_service = baseline_pnl.pop('_debug_info')
+                    print(f"[API] Service Debug Info: {debug_info_from_service}")
                 logger.info(f"Discovery: Baseline (Original) P&L from unified_pnl_service for use_case_id {use_case_id}: {baseline_pnl}")
             except Exception as pnl_error:
+                print(f"[API] [ERROR] Failed to get baseline P&L: {pnl_error}")
                 logger.warning(f"Discovery: Failed to get baseline P&L from unified_pnl_service (non-fatal): {pnl_error}")
         
         # CRITICAL FIX: Override ROOT node(s) with unified_pnl_service total AFTER all aggregations
         # This ensures the root node shows the correct total even if leaf matching or bottom-up aggregation fails
         if use_case_id and baseline_pnl:
+            print(f"[API] Overriding ROOT nodes with unified_pnl_service values...")
+            print(f"[API] baseline_pnl: {baseline_pnl}")
+            print(f"[API] root_nodes: {root_nodes}")
             for root_id in root_nodes:
                 if root_id in natural_results:
                     # Override root node with unified service total (this is the SINGLE SOURCE OF TRUTH)
                     old_daily = natural_results[root_id].get('daily', Decimal('0'))
+                    new_daily = baseline_pnl['daily_pnl']
                     natural_results[root_id] = {
-                        'daily': baseline_pnl['daily_pnl'],
+                        'daily': new_daily,
                         'mtd': baseline_pnl['mtd_pnl'],
                         'ytd': baseline_pnl['ytd_pnl'],
                         'pytd': Decimal('0'),
                     }
+                    print(f"[API] ROOT node {root_id}: Overrode {old_daily} -> {new_daily}")
                     logger.info(
                         f"Discovery: Overrode ROOT node {root_id} with unified_pnl_service total. "
-                        f"Old: {old_daily}, New: {baseline_pnl['daily_pnl']}"
+                        f"Old: {old_daily}, New: {new_daily}"
                     )
+                else:
+                    print(f"[API] [WARNING] ROOT node {root_id} not found in natural_results!")
         
         # Build tree structure for ALL root nodes (support multiple roots)
         root_node_trees = []
@@ -1019,43 +1122,64 @@ def get_discovery_view(
         
         # Calculate reconciliation totals: sum of leaf nodes vs fact table sum
         # Wrap in try-except to make it optional if it fails
+        # Phase 5.5: Use unified_pnl_service for fact table sum (respects table routing)
         reconciliation_data = None
         try:
             from sqlalchemy import func
-            from app.models import FactPnlGold
             
-            # Sum of all facts in fact_pnl_gold
-            fact_totals = db.query(
-                func.sum(FactPnlGold.daily_pnl).label('daily_total'),
-                func.sum(FactPnlGold.mtd_pnl).label('mtd_total'),
-                func.sum(FactPnlGold.ytd_pnl).label('ytd_total')
-            ).first()
-            
-            # Sum of leaf nodes from natural results
-            leaf_totals = {
-                'daily': Decimal('0'),
-                'mtd': Decimal('0'),
-                'ytd': Decimal('0')
-            }
-            for node_id in leaf_nodes:
-                if node_id in natural_results:
-                    leaf_totals['daily'] += Decimal(str(natural_results[node_id].get('daily', 0)))
-                    leaf_totals['mtd'] += Decimal(str(natural_results[node_id].get('mtd', 0)))
-                    leaf_totals['ytd'] += Decimal(str(natural_results[node_id].get('ytd', 0)))
-            
-            # Build reconciliation data
-            reconciliation_data = ReconciliationData(
-                fact_table_sum={
-                    'daily': str(fact_totals.daily_total or 0),
-                    'mtd': str(fact_totals.mtd_total or 0),
-                    'ytd': str(fact_totals.ytd_total or 0)
-                },
-                leaf_nodes_sum={
-                    'daily': str(leaf_totals['daily']),
-                    'mtd': str(leaf_totals['mtd']),
-                    'ytd': str(leaf_totals['ytd'])
+            # Phase 5.5: Get fact table sum from unified_pnl_service (respects table routing)
+            # This ensures reconciliation uses the correct source table
+            fact_table_sum = None
+            if use_case_id and baseline_pnl:
+                # Use the values from unified_pnl_service (already routed to correct table)
+                fact_table_sum = {
+                    'daily': baseline_pnl['daily_pnl'],
+                    'mtd': baseline_pnl['mtd_pnl'],
+                    'ytd': baseline_pnl['ytd_pnl']
                 }
-            )
+                print(f"[API] Reconciliation: Using unified_pnl_service values for fact_table_sum: {fact_table_sum}")
+            else:
+                # Fallback: Query fact_pnl_gold (legacy behavior)
+                from app.models import FactPnlGold
+                fact_totals = db.query(
+                    func.sum(FactPnlGold.daily_pnl).label('daily_total'),
+                    func.sum(FactPnlGold.mtd_pnl).label('mtd_total'),
+                    func.sum(FactPnlGold.ytd_pnl).label('ytd_total')
+                ).first()
+                fact_table_sum = {
+                    'daily': Decimal(str(fact_totals.daily_total or 0)),
+                    'mtd': Decimal(str(fact_totals.mtd_total or 0)),
+                    'ytd': Decimal(str(fact_totals.ytd_total or 0))
+                }
+                print(f"[API] Reconciliation: Using fact_pnl_gold fallback: {fact_table_sum}")
+            
+            if fact_table_sum:
+                # Sum of leaf nodes from natural results
+                leaf_totals = {
+                    'daily': Decimal('0'),
+                    'mtd': Decimal('0'),
+                    'ytd': Decimal('0')
+                }
+                for node_id in leaf_nodes:
+                    if node_id in natural_results:
+                        leaf_totals['daily'] += Decimal(str(natural_results[node_id].get('daily', 0)))
+                        leaf_totals['mtd'] += Decimal(str(natural_results[node_id].get('mtd', 0)))
+                        leaf_totals['ytd'] += Decimal(str(natural_results[node_id].get('ytd', 0)))
+                
+                # Build reconciliation data
+                reconciliation_data = ReconciliationData(
+                    fact_table_sum={
+                        'daily': str(fact_table_sum['daily']),
+                        'mtd': str(fact_table_sum['mtd']),
+                        'ytd': str(fact_table_sum['ytd'])
+                    },
+                    leaf_nodes_sum={
+                        'daily': str(leaf_totals['daily']),
+                        'mtd': str(leaf_totals['mtd']),
+                        'ytd': str(leaf_totals['ytd'])
+                    }
+                )
+                print(f"[API] Reconciliation data built: fact_table_sum={reconciliation_data.fact_table_sum}, leaf_nodes_sum={reconciliation_data.leaf_nodes_sum}")
         except Exception as e:
             # Log error but don't fail the request
             logger.warning(f"Failed to calculate reconciliation data: {e}")
@@ -1082,6 +1206,16 @@ def get_discovery_view(
         # Build response with ALL root nodes (support multiple roots)
         logger.info(f"Discovery: Returning hierarchy with {len(root_node_trees)} root node(s)")
         logger.debug(f"Discovery: Debug info: {debug_info}")
+        
+        # Print final response summary for debugging
+        print(f"[API] Building response...")
+        if root_node_trees:
+            first_root = root_node_trees[0]
+            print(f"[API] First ROOT node: {first_root.node_name} (ID: {first_root.node_id})")
+            print(f"[API] First ROOT daily_pnl: {first_root.daily_pnl}")
+            if reconciliation_data:
+                print(f"[API] Reconciliation fact_table_sum['daily']: {reconciliation_data.fact_table_sum.get('daily')}")
+        
         response = DiscoveryResponse(
             structure_id=structure_id,
             hierarchy=root_node_trees,  # Return all root nodes, not just the first one
@@ -1089,6 +1223,8 @@ def get_discovery_view(
             debug_info=debug_info  # Include debug information for data sanity verification
         )
         logger.info(f"Discovery: Response built successfully, hierarchy has {len(response.hierarchy)} root nodes")
+        print(f"[API] Response built and returning. ROOT node daily_pnl should be: {baseline_pnl['daily_pnl'] if baseline_pnl else 'N/A'}")
+        print(f"[API] {'='*70}\n")
         return response
     
     except Exception as e:

@@ -297,8 +297,13 @@ def get_calculation_results(
     
     # Recalculate natural values from hierarchy (for accurate comparison)
     # Natural values = sum of facts without rules applied
-    from app.engine.waterfall import load_facts, calculate_natural_rollup
-    facts_df = load_facts(db)
+    # Phase 5.5: Load facts from use-case-specific input table
+    from app.engine.waterfall import load_facts, load_facts_from_use_case_3, calculate_natural_rollup
+    use_case_obj = db.query(UseCase).filter(UseCase.use_case_id == use_case_id).first()
+    if use_case_obj and use_case_obj.input_table_name == 'fact_pnl_use_case_3':
+        facts_df = load_facts_from_use_case_3(db, use_case_id=use_case_id)
+    else:
+        facts_df = load_facts(db)
     natural_results = calculate_natural_rollup(
         hierarchy_dict, children_dict, leaf_nodes, facts_df
     )
@@ -406,9 +411,13 @@ def get_calculation_results(
             if value is None:
                 return default
             try:
-                # Handle Decimal, float, int
-                if isinstance(value, (Decimal, float, int)):
-                    return str(float(value))
+                # CRITICAL: Handle Decimal properly - convert to string directly, not via float
+                # This maintains precision for financial values
+                if isinstance(value, Decimal):
+                    return str(value)
+                # Handle float, int
+                if isinstance(value, (float, int)):
+                    return str(value)
                 return str(value)
             except (ValueError, TypeError):
                 return default
@@ -832,7 +841,9 @@ def get_execution_plan(
                     "node": node_id,
                     "impact_type": row_dict.get('rule_type') or "Adjustment",
                     "strategy": strategy,
-                    "value": float(val) if val is not None else 0.0
+                    # NOTE: Converting to float for API response (JSON doesn't support Decimal)
+                    # All calculations use Decimal, only converting at API boundary
+                    "value": float(Decimal(str(val))) if val is not None else 0.0
                 })
             except Exception as map_err:
                 print(f"[EXECUTION PLAN] Skipping row {idx} due to mapping error: {map_err}")

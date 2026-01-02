@@ -36,7 +36,9 @@ def load_facts_for_date(
     scenario: str = "ACTUAL"
 ) -> pd.DataFrame:
     """
-    Load fact data from fact_pnl_entries for a specific date and scenario.
+    Load fact data from use-case-specific input table for a specific date and scenario.
+    
+    Phase 5.5: Updated to support dynamic table routing via use_case.input_table_name.
     
     Args:
         session: Database session
@@ -47,68 +49,124 @@ def load_facts_for_date(
     Returns:
         Pandas DataFrame with fact rows, using Decimal for numeric columns
     """
-    # HARD-CODE FACT FILTER: Ensure UUID is cast to string for PostgreSQL compatibility
     import logging
     fact_logger = logging.getLogger(__name__)
     
-    # DEBUG: Log use case ID for verification
-    fact_logger.debug(f"Loading facts for Use Case ID: {use_case_id} (type: {type(use_case_id)})")
-    fact_logger.info(f"load_facts_for_date: Loading facts for Use Case ID: {use_case_id}, pnl_date: {pnl_date}, scenario: {scenario}")
+    # Phase 5.5: Get UseCase to determine input table
+    use_case = session.query(UseCase).filter(UseCase.use_case_id == use_case_id).first()
+    if not use_case:
+        fact_logger.error(f"Use case {use_case_id} not found")
+        return pd.DataFrame()
     
-    # RAW SQL SLEDGEHAMMER: Completely bypass ORM to fix zero-data error
-    # The ORM layer is failing to see the data, causing silent failures
+    # Phase 5.5: Determine which table to query (Table Routing Logic)
+    # 1. If use_case.input_table_name is set, use that (e.g., 'fact_pnl_use_case_3')
+    # 2. Otherwise, fallback to 'fact_pnl_entries' for backward compatibility
+    source_table = use_case.input_table_name if use_case.input_table_name else 'fact_pnl_entries'
+    
+    fact_logger.debug(f"Loading facts for Use Case ID: {use_case_id} (type: {type(use_case_id)})")
+    fact_logger.info(f"load_facts_for_date: Loading facts for Use Case ID: {use_case_id}, table: {source_table}, pnl_date: {pnl_date}, scenario: {scenario}")
+    
+    # RAW SQL: Bypass ORM to ensure reliable data loading
     from sqlalchemy import text
     
-    # RAW SQL BYPASS: ORM is failing to map UUIDs correctly.
-    # We select specific columns to ensure shape matches.
     use_case_id_str = str(use_case_id)
-    fact_logger.debug(f"EXECUTE RAW SQL for Use Case: {use_case_id_str}, pnl_date: {pnl_date}, scenario: {scenario}")
-    fact_logger.info(f"load_facts_for_date: RAW SQL SLEDGEHAMMER - bypassing ORM completely")
+    fact_logger.debug(f"EXECUTE RAW SQL for Use Case: {use_case_id_str}, table: {source_table}, pnl_date: {pnl_date}, scenario: {scenario}")
     
-    # RAW SQL FACTS LOAD: Force-load facts by use_case_id and scenario only
-    # Removed pnl_date filter to ensure we get all facts for the use case
-    sql = text("""
-        SELECT 
-            category_code as node_id,
-            daily_amount, 
-            wtd_amount, 
-            ytd_amount,
-            scenario,
-            COALESCE(currency, 'USD') as currency
-        FROM fact_pnl_entries 
-        WHERE use_case_id = :uc_id
-        AND scenario = :scen
-    """)
+    # Phase 5.5: Build query dynamically based on source table
+    if source_table == 'fact_pnl_use_case_3':
+        # Use Case 3: fact_pnl_use_case_3 table (no use_case_id, no scenario, no pnl_date filter)
+        sql = text(f"""
+            SELECT 
+                strategy as node_id,
+                pnl_daily as daily_amount,
+                0 as wtd_amount,
+                0 as ytd_amount,
+                'ACTUAL' as scenario,
+                'USD' as currency,
+                pnl_commission,
+                pnl_trade
+            FROM {source_table}
+        """)
+        params = {}
+    elif source_table == 'fact_pnl_entries':
+        # Use Case 2: fact_pnl_entries table (has use_case_id, scenario)
+        sql = text(f"""
+            SELECT 
+                category_code as node_id,
+                daily_amount, 
+                wtd_amount, 
+                ytd_amount,
+                scenario,
+                COALESCE(currency, 'USD') as currency
+            FROM {source_table} 
+            WHERE use_case_id = :uc_id
+            AND scenario = :scen
+        """)
+        params = {
+            "uc_id": str(use_case_id),
+            "scen": scenario
+        }
+    else:
+        # Default: fact_pnl_gold table (Use Case 1)
+        sql = text(f"""
+            SELECT 
+                cc_id as node_id,
+                daily_pnl as daily_amount,
+                mtd_pnl as wtd_amount,
+                ytd_pnl as ytd_amount,
+                'ACTUAL' as scenario,
+                'USD' as currency
+            FROM {source_table}
+        """)
+        params = {}
     
-    # Execute with explicit string casting for UUID safety
-    result = session.execute(sql, {
-        "uc_id": str(use_case_id),
-        "scen": scenario
-    })
+    # Execute query
+    result = session.execute(sql, params)
     rows = result.fetchall()
     
     fact_logger.debug(f"RAW SQL FOUND {len(rows)} ROWS.")
-    fact_logger.info(f"load_facts_for_date: RAW SQL found {len(rows)} rows for use_case_id={use_case_id_str}, scenario={scenario}")
+    fact_logger.info(f"load_facts_for_date: RAW SQL found {len(rows)} rows for use_case_id={use_case_id_str}, table={source_table}, scenario={scenario}")
     
     if len(rows) == 0:
-        logger.warning(f"WARNING: Raw SQL returned 0 rows. This may indicate a data issue.")
-        fact_logger.warning(f"load_facts_for_date: No facts found for use_case_id={use_case_id_str}, scenario={scenario}")
-        # Return empty DataFrame - let the safety block in save_calculation_results handle it
+        fact_logger.warning(f"WARNING: Raw SQL returned 0 rows. This may indicate a data issue.")
+        fact_logger.warning(f"load_facts_for_date: No facts found for use_case_id={use_case_id_str}, table={source_table}, scenario={scenario}")
         return pd.DataFrame()
     
-    # Manual Object Mapping (Mocking the ORM object for compatibility)
-    # Convert raw SQL rows to DataFrame format
+    # Phase 5.5: Map rows based on input table
     data = []
-    for row in rows:
-        data.append({
-            'fact_id': None,  # Not needed for calculation
-            'category_code': row[0],  # node_id (aliased as category_code)
-            'daily_amount': Decimal(str(row[1] or 0.0)),  # daily_amount
-            'wtd_amount': Decimal(str(row[2] or 0.0)),  # wtd_amount
-            'ytd_amount': Decimal(str(row[3] or 0.0)),  # ytd_amount
-            'scenario': row[4],  # scenario
-            'currency': row[5] if len(row) > 5 else 'USD',  # currency
-        })
+    if source_table == 'fact_pnl_use_case_3':
+        # Use Case 3: Map fact_pnl_use_case_3 columns
+        for row in rows:
+            data.append({
+                'fact_id': None,
+                'category_code': row[0] if len(row) > 0 else None,  # strategy (aliased as node_id)
+                'daily_amount': Decimal(str(row[1] or 0.0)),  # pnl_daily (aliased as daily_amount)
+                'wtd_amount': Decimal('0'),  # Not available
+                'ytd_amount': Decimal('0'),  # Not available
+                'scenario': row[4] if len(row) > 4 else 'ACTUAL',  # scenario
+                'currency': row[5] if len(row) > 5 else 'USD',  # currency
+                # Phase 5.5: Include all PnL columns for multiple measures support
+                'pnl_daily': Decimal(str(row[1] or 0.0)),
+                'pnl_commission': Decimal(str(row[6] or 0.0)) if len(row) > 6 else Decimal('0'),
+                'pnl_trade': Decimal(str(row[7] or 0.0)) if len(row) > 7 else Decimal('0'),
+                # Map to standard names for compatibility
+                'daily_pnl': Decimal(str(row[1] or 0.0)),
+                'mtd_pnl': Decimal('0'),
+                'ytd_pnl': Decimal('0'),
+                'pytd_pnl': Decimal('0'),
+            })
+    else:
+        # Default: fact_pnl_entries mapping
+        for row in rows:
+            data.append({
+                'fact_id': None,  # Not needed for calculation
+                'category_code': row[0],  # node_id (aliased as category_code)
+                'daily_amount': Decimal(str(row[1] or 0.0)),  # daily_amount
+                'wtd_amount': Decimal(str(row[2] or 0.0)),  # wtd_amount
+                'ytd_amount': Decimal(str(row[3] or 0.0)),  # ytd_amount
+                'scenario': row[4],  # scenario
+                'currency': row[5] if len(row) > 5 else 'USD',  # currency
+            })
     
     df = pd.DataFrame(data)
     
@@ -117,8 +175,17 @@ def load_facts_for_date(
         df['daily_amount'] = df['daily_amount'].apply(lambda x: Decimal(str(x)))
         df['wtd_amount'] = df['wtd_amount'].apply(lambda x: Decimal(str(x)))
         df['ytd_amount'] = df['ytd_amount'].apply(lambda x: Decimal(str(x)))
+        # Phase 5.5: Preserve Use Case 3 specific columns
+        if 'pnl_daily' in df.columns:
+            df['pnl_daily'] = df['pnl_daily'].apply(lambda x: Decimal(str(x)))
+        if 'pnl_commission' in df.columns:
+            df['pnl_commission'] = df['pnl_commission'].apply(lambda x: Decimal(str(x)))
+        if 'pnl_trade' in df.columns:
+            df['pnl_trade'] = df['pnl_trade'].apply(lambda x: Decimal(str(x)))
+        if 'daily_pnl' in df.columns:
+            df['daily_pnl'] = df['daily_pnl'].apply(lambda x: Decimal(str(x)))
     
-    fact_logger.debug(f"Loaded {len(df)} Facts via Raw SQL for use_case_id={use_case_id_str}")
+    fact_logger.debug(f"Loaded {len(df)} Facts via Raw SQL for use_case_id={use_case_id_str}, table={source_table}")
     
     return df
 
@@ -407,6 +474,9 @@ def create_snapshot(
         calculation_run.calculation_duration_ms = duration_ms
         session.commit()
         
+        # NOTE: Converting Decimal to float for JSON serialization (API response)
+        # This is acceptable because JSON doesn't support Decimal type.
+        # All calculations above use Decimal, only converting at API boundary.
         return {
             'calculation_run_id': calculation_run.id,
             'pnl_date': pnl_date,
@@ -532,7 +602,9 @@ def apply_rules_to_results(
                 # Check if any descendant has a rule
                 if not has_descendant_rule(node_id):
                     rule = active_rules[node_id]
-                    override_values = apply_rule_override(session, facts_df, rule)
+                    # Phase 5.4: Pass use_case to apply_rule_override for table detection
+                    use_case = session.query(UseCase).filter(UseCase.use_case_id == use_case_id).first()
+                    override_values = apply_rule_override(session, facts_df, rule, use_case)
                     
                     # Map to our measure structure (daily, wtd, ytd)
                     adjusted_results[node_id] = {
@@ -630,13 +702,14 @@ def save_calculation_results(
         
         # THE "HARD" SAFETY GATE: Block zero-insert before bulk insert
         # CALCULATE TOTAL P&L TO VERIFY DATA
-        total_daily = sum(float(obj.measure_vector.get('daily', 0)) for obj in result_objects)
+        # CRITICAL: Use Decimal for summation, not float (maintains precision)
+        total_daily = sum(Decimal(str(obj.measure_vector.get('daily', 0))) for obj in result_objects)
         logger.debug(f"Total Daily P&L to Save: {total_daily}")
         logger.info(f"save_calculation_results: Total Daily P&L to Save: {total_daily}, Object count: {len(result_objects)}")
         
         # DEMO MODE: Skip actual database insert entirely if all values are zero
         # This prevents InFailedSqlTransaction errors when calculation produces zeros
-        if total_daily == 0:
+        if total_daily == Decimal('0'):
             logger.warning("All P&L values are zero. Skipping database insert to prevent transaction errors.")
             logger.warning("save_calculation_results: DEMO MODE - Skipping insert because all values are zero")
             # Return fake success count to trigger UI reload
