@@ -254,7 +254,7 @@ def get_use_case_hierarchy(
     
     latest_run = db.query(CalculationRun).filter(
         CalculationRun.use_case_id == use_case_id
-    ).order_by(desc(CalculationRun.created_at)).first()
+    ).order_by(desc(CalculationRun.executed_at)).first()
     
     # If we have calculated results, use them; otherwise use discovery endpoint (natural rollups)
     if latest_run:

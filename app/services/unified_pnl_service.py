@@ -22,6 +22,13 @@ from sqlalchemy import text, func
 import logging
 logger = logging.getLogger(__name__)
 
+# Phase 5.7: Math Dependency Engine
+from app.services.dependency_resolver import (
+    DependencyResolver,
+    CircularDependencyError,
+    evaluate_type3_expression
+)
+
 
 def _calculate_legacy_rollup(
     session: Session,
@@ -73,10 +80,8 @@ def _calculate_legacy_rollup(
     # Step 1: Fetch data grouped by cc_id (or category_code)
     fact_map = {}  # {cc_id/category_code: {'daily': Decimal, 'mtd': Decimal, 'ytd': Decimal}}
     
-    # CRITICAL FIX: Check input_table_name to determine which table to use
-    # If input_table_name is NULL, check use case name to determine routing
-    # Use Case 1 (America Trading P&L) -> fact_pnl_gold
-    # Use Case 2 (Project Sterling) -> fact_pnl_entries
+    # CRITICAL FIX: Use SAME routing logic as get_unified_pnl to ensure consistency
+    # This ensures Tab 2 and Tab 3 use the same table and show the same numbers
     use_fact_pnl_gold = False
     use_fact_pnl_entries = False
     
@@ -87,27 +92,22 @@ def _calculate_legacy_rollup(
         elif use_case.input_table_name.strip() == 'fact_pnl_entries':
             use_fact_pnl_entries = True
     else:
-        # No explicit table - determine by use case name
-        use_case_name_lower = use_case.name.lower() if use_case.name else ''
-        if 'america' in use_case_name_lower and 'trading' in use_case_name_lower:
-            # Use Case 1: America Trading P&L -> fact_pnl_gold
-            use_fact_pnl_gold = True
-            logger.info(f"[Legacy Path] Detected Use Case 1 (America Trading P&L) - routing to fact_pnl_gold")
-            print(f"[Legacy Path] Detected Use Case 1 (America Trading P&L) - routing to fact_pnl_gold")
-        elif 'sterling' in use_case_name_lower or 'project' in use_case_name_lower:
-            # Use Case 2: Project Sterling -> fact_pnl_entries
+        # No explicit table - use SAME logic as get_unified_pnl: Check fact_pnl_entries first
+        # This matches get_unified_pnl which checks fact_pnl_entries first, then falls back to fact_pnl_gold
+        entries_count = session.query(FactPnlEntries).filter(
+            FactPnlEntries.use_case_id == use_case_id
+        ).count()
+        
+        if entries_count > 0:
+            # Use fact_pnl_entries (same as get_unified_pnl routing)
             use_fact_pnl_entries = True
-            logger.info(f"[Legacy Path] Detected Use Case 2 (Project Sterling) - routing to fact_pnl_entries")
-            print(f"[Legacy Path] Detected Use Case 2 (Project Sterling) - routing to fact_pnl_entries")
+            logger.info(f"[Legacy Path] Found {entries_count} rows in fact_pnl_entries - routing to fact_pnl_entries (same as get_unified_pnl)")
+            print(f"[Legacy Path] Found {entries_count} rows in fact_pnl_entries - routing to fact_pnl_entries (same as get_unified_pnl)")
         else:
-            # Fallback: Try fact_pnl_entries first, then fact_pnl_gold
-            entries_count = session.query(FactPnlEntries).filter(
-                FactPnlEntries.use_case_id == use_case_id
-            ).count()
-            if entries_count > 0:
-                use_fact_pnl_entries = True
-            else:
-                use_fact_pnl_gold = True
+            # Fallback to fact_pnl_gold (same as get_unified_pnl routing)
+            use_fact_pnl_gold = True
+            logger.info(f"[Legacy Path] No rows in fact_pnl_entries - routing to fact_pnl_gold (same as get_unified_pnl)")
+            print(f"[Legacy Path] No rows in fact_pnl_entries - routing to fact_pnl_gold (same as get_unified_pnl)")
     
     # Try fact_pnl_entries (Use Case 2 - Project Sterling)
     if use_fact_pnl_entries:
@@ -130,12 +130,13 @@ def _calculate_legacy_rollup(
                 FactPnlEntries.scenario == 'ACTUAL'
             ).group_by(FactPnlEntries.category_code).all()
             
-            # Build fact_map: {category_code: {daily, mtd, ytd}}
+            # Build fact_map: {category_code: {daily, mtd, ytd, pytd}}
             for row in grouped_data:
                 fact_map[row.category_code] = {
                     'daily': Decimal(str(row.sum_daily or 0)),
                     'mtd': Decimal(str(row.sum_mtd or 0)),
-                    'ytd': Decimal(str(row.sum_ytd or 0))
+                    'ytd': Decimal(str(row.sum_ytd or 0)),
+                    'pytd': Decimal('0')  # fact_pnl_entries doesn't have pytd, default to 0
                 }
             
             logger.info(f"[Legacy Path] Built fact_map with {len(fact_map)} category_code entries")
@@ -156,12 +157,13 @@ def _calculate_legacy_rollup(
             func.sum(FactPnlGold.ytd_pnl).label('sum_ytd')
         ).group_by(FactPnlGold.cc_id).all()
         
-        # Build fact_map: {cc_id: {daily, mtd, ytd}}
+        # Build fact_map: {cc_id: {daily, mtd, ytd, pytd}}
         for row in grouped_data:
             fact_map[row.cc_id] = {
                 'daily': Decimal(str(row.sum_daily or 0)),
                 'mtd': Decimal(str(row.sum_mtd or 0)),
-                'ytd': Decimal(str(row.sum_ytd or 0))
+                'ytd': Decimal(str(row.sum_ytd or 0)),
+                'pytd': Decimal('0')  # fact_pnl_gold doesn't have pytd in query, default to 0
             }
         
         logger.info(f"[Legacy Path] Built fact_map with {len(fact_map)} cc_id entries")
@@ -181,8 +183,8 @@ def _calculate_legacy_rollup(
             }
         return results
     
-    # Step 2: Map to Leaves (Aggressive Matching)
-    # Try multiple matching strategies to find the correct link
+    # Step 2: Map to Leaves (Explicit Mapping Pattern)
+    # Use mapping_value from database (explicit mapping) or fallback to node_id
     matched_leaf_count = 0
     unmatched_fact_keys = set(fact_map.keys())  # Track which fact keys haven't been matched yet
     
@@ -194,31 +196,38 @@ def _calculate_legacy_rollup(
             # High-Visibility Debugging: Log every leaf node check
             print(f"\n[DEBUG] Checking Leaf: '{node_id}' (Name: '{node.node_name}')")
             
-            # FORCE TEST: Hardcoded Override for Americas Cash NY
-            # If the UI doesn't show 999, the UI is disconnected.
-            if "Americas Cash NY" in node.node_name or "Cash NY" in node.node_name:
-                print("[DEBUG] FORCING MOCK VALUE FOR AMERICAS CASH NY")
-                results[node_id] = {
-                    'daily': Decimal('999.99'),
-                    'mtd': Decimal('999.99'),
-                    'ytd': Decimal('999.99')
-                }
-                matched_leaf_count += 1
-                print(f"[DEBUG] Hardcoded value assigned: daily=999.99")
-                continue  # Skip matching logic for this node
-            
             matched = False
             strategy_name = None
             matched_key = None
             
-            # Check 1: Direct node_id match (Primary - most reliable)
-            if node_id in fact_map:
-                matched_key = node_id
-                strategy_name = "node_id direct match"
+            # EXPLICIT MAPPING PATTERN: Use mapping_value from database (primary) or fallback to node_id
+            match_key = node_id  # Default: use node_id directly
+            matched_strategy = "direct"
+            
+            # 1. Primary Match: Check node.mapping_value (Explicit Mapping from Database)
+            if node.mapping_value:
+                if node.mapping_value in fact_map:
+                    match_key = node.mapping_value
+                    matched_strategy = "explicit_mapping"
+                    logger.info(f"Using DB Mapping: {node_id} -> {node.mapping_value}")
+                    print(f"   -> Using DB Mapping: '{node_id}' -> '{node.mapping_value}'")
+                else:
+                    logger.warning(f"[Legacy Path] Node '{node_id}' has mapping_value '{node.mapping_value}' but it's not in fact_map")
+                    print(f"   -> WARNING: mapping_value '{node.mapping_value}' not found in fact_map, falling back to node_id")
+            # 2. Fallback: Try Direct Match with node_id
+            elif node_id in fact_map:
+                match_key = node_id
+                matched_strategy = "direct"
+                print(f"   -> Direct match: node_id='{node_id}' found in fact_map")
+            
+            # Check 1: Direct match using translated key
+            if match_key in fact_map:
+                matched_key = match_key
+                strategy_name = matched_strategy
                 matched = True
-                print(f"   -> MATCH FOUND (Strict): node_id='{node_id}' found in fact_map")
+                print(f"   -> MATCH FOUND: match_key='{match_key}' (strategy: {matched_strategy})")
             else:
-                print(f"   -> NO MATCH (Strict): node_id='{node_id}' not in fact_map")
+                print(f"   -> NO MATCH: match_key='{match_key}' not in fact_map")
             
             # Check 2: node_name match (Secondary)
             if not matched and node.node_name and node.node_name in fact_map:
@@ -259,7 +268,8 @@ def _calculate_legacy_rollup(
                 results[node_id] = {
                     'daily': Decimal('0'),
                     'mtd': Decimal('0'),
-                    'ytd': Decimal('0')
+                    'ytd': Decimal('0'),
+                    'pytd': Decimal('0')
                 }
                 logger.debug(f"[Legacy Path] Leaf {node_id} ('{node.node_name}') not found in fact_map (tried all strategies)")
                 print(f"   -> NO MATCH (All strategies failed)")
@@ -283,11 +293,13 @@ def _calculate_legacy_rollup(
                     child_daily = sum(results.get(child_id, {}).get('daily', Decimal('0')) for child_id in children)
                     child_mtd = sum(results.get(child_id, {}).get('mtd', Decimal('0')) for child_id in children)
                     child_ytd = sum(results.get(child_id, {}).get('ytd', Decimal('0')) for child_id in children)
+                    child_pytd = sum(results.get(child_id, {}).get('pytd', Decimal('0')) for child_id in children)
                     
                     results[node_id] = {
                         'daily': child_daily,
                         'mtd': child_mtd,
-                        'ytd': child_ytd
+                        'ytd': child_ytd,
+                        'pytd': child_pytd
                     }
                     
                     logger.debug(f"[Legacy Path] Parent {node_id} ('{node.node_name}') aggregated from {len(children)} children: daily={child_daily}")
@@ -296,7 +308,8 @@ def _calculate_legacy_rollup(
                     results[node_id] = {
                         'daily': Decimal('0'),
                         'mtd': Decimal('0'),
-                        'ytd': Decimal('0')
+                        'ytd': Decimal('0'),
+                        'pytd': Decimal('0')
                     }
     
     # Step 4: Blind Assignment (Debug Mode) - For root nodes that are still 0
@@ -312,7 +325,8 @@ def _calculate_legacy_rollup(
                 unmatched_sum = {
                     'daily': sum(fact_map[key]['daily'] for key in unmatched_fact_keys if key in fact_map),
                     'mtd': sum(fact_map[key]['mtd'] for key in unmatched_fact_keys if key in fact_map),
-                    'ytd': sum(fact_map[key]['ytd'] for key in unmatched_fact_keys if key in fact_map)
+                    'ytd': sum(fact_map[key]['ytd'] for key in unmatched_fact_keys if key in fact_map),
+                    'pytd': sum(fact_map[key].get('pytd', Decimal('0')) for key in unmatched_fact_keys if key in fact_map)
                 }
                 
                 if unmatched_sum['daily'] != Decimal('0'):
@@ -402,7 +416,8 @@ def _calculate_strategy_rollup(
             results[node_id] = {
                 'daily': Decimal('0'),
                 'mtd': Decimal('0'),
-                'ytd': Decimal('0')
+                'ytd': Decimal('0'),
+                'pytd': Decimal('0')
             }
             continue
         
@@ -439,14 +454,16 @@ def _calculate_strategy_rollup(
             results[node_id] = {
                 'daily': daily_sum,
                 'mtd': mtd_sum,
-                'ytd': ytd_sum
+                'ytd': ytd_sum,
+                'pytd': Decimal('0')  # fact_pnl_use_case_3 doesn't have pytd, default to 0
             }
         else:
             # No match - initialize to zero (will be aggregated from children if parent)
             results[node_id] = {
                 'daily': Decimal('0'),
                 'mtd': Decimal('0'),
-                'ytd': Decimal('0')
+                'ytd': Decimal('0'),
+                'pytd': Decimal('0')
             }
     
     # Step 2: Aggregate parent nodes bottom-up FIRST (before ROOT aggregation)
@@ -475,10 +492,12 @@ def _calculate_strategy_rollup(
                     
                     # CRITICAL FIX: Always set parent to sum of children (regardless of direct match)
                     # This ensures MTD/YTD are aggregated even if parent had a direct match
+                    child_pytd = sum(results.get(child_id, {}).get('pytd', Decimal('0')) for child_id in children)
                     results[node_id] = {
                         'daily': child_daily,
                         'mtd': child_mtd,
-                        'ytd': child_ytd
+                        'ytd': child_ytd,
+                        'pytd': child_pytd
                     }
                     
                     logger.info(f"[Strategy Path] Parent {node_id} ('{node.node_name}') aggregated from {len(children)} children: daily={child_daily}, mtd={child_mtd}, ytd={child_ytd}")
@@ -489,55 +508,45 @@ def _calculate_strategy_rollup(
                         results[node_id] = {
                             'daily': Decimal('0'),
                             'mtd': Decimal('0'),
-                            'ytd': Decimal('0')
+                            'ytd': Decimal('0'),
+                            'pytd': Decimal('0')
                         }
     
-    # Step 3: Handle ROOT node - aggregate from children (which are now fully aggregated)
-    # CRITICAL: ROOT should aggregate from children AFTER all parent nodes are aggregated
+    # Step 3: Handle ROOT node - use DIRECT SUM of ALL facts (not just children)
+    # CRITICAL FIX: ROOT node must match get_unified_pnl totals (sum of ALL facts, not just matched children)
+    # This ensures Tab 2 and Tab 3 show the same totals
     for root_id in root_nodes:
         root_node = hierarchy_dict.get(root_id)
         if root_node:
-            # First, try to aggregate from children (if ROOT has children)
-            children = children_dict.get(root_id, [])
+            # CRITICAL: ROOT node should always use the direct sum of ALL facts
+            # This matches get_unified_pnl which sums all facts in the table
+            # Even if ROOT has children, we use direct sum to include unmatched facts
+            daily_sum = Decimal(str(facts_df['pnl_daily'].sum())) if 'pnl_daily' in facts_df.columns else Decimal('0')
+            mtd_sum = Decimal(str(facts_df['pnl_commission'].sum())) if 'pnl_commission' in facts_df.columns else Decimal('0')
+            ytd_sum = Decimal(str(facts_df['pnl_trade'].sum())) if 'pnl_trade' in facts_df.columns else Decimal('0')
             
+            # Also calculate child sum for verification/logging
+            children = children_dict.get(root_id, [])
             if children:
-                # Aggregate from children (bottom-up) - ensures MTD/YTD are included
-                # CRITICAL: Explicitly sum ALL 3 metrics
                 child_daily = sum(results.get(child_id, {}).get('daily', Decimal('0')) for child_id in children)
                 child_mtd = sum(results.get(child_id, {}).get('mtd', Decimal('0')) for child_id in children)
                 child_ytd = sum(results.get(child_id, {}).get('ytd', Decimal('0')) for child_id in children)
                 
-                # Also sum all facts directly (for verification)
-                direct_daily = Decimal(str(facts_df['pnl_daily'].sum())) if 'pnl_daily' in facts_df.columns else Decimal('0')
-                direct_mtd = Decimal(str(facts_df['pnl_commission'].sum())) if 'pnl_commission' in facts_df.columns else Decimal('0')
-                direct_ytd = Decimal(str(facts_df['pnl_trade'].sum())) if 'pnl_trade' in facts_df.columns else Decimal('0')
-                
-                # Use child aggregation (ensures MTD/YTD are included from children)
-                # CRITICAL: Set ALL 3 metrics explicitly
-                results[root_id] = {
-                    'daily': child_daily,
-                    'mtd': child_mtd,
-                    'ytd': child_ytd
-                }
-                
-                logger.info(f"[Strategy Path] ROOT node {root_id} ('{root_node.node_name}') aggregated from {len(children)} children: daily={child_daily}, mtd={child_mtd}, ytd={child_ytd}")
-                print(f"[Strategy Path] ROOT node {root_id} aggregated from children: daily={child_daily}, mtd={child_mtd}, ytd={child_ytd}")
-                print(f"[Strategy Path] ROOT direct sum (for verification): daily={direct_daily}, mtd={direct_mtd}, ytd={direct_ytd}")
+                logger.info(f"[Strategy Path] ROOT node {root_id} ('{root_node.node_name}') using direct sum: daily={daily_sum}, mtd={mtd_sum}, ytd={ytd_sum}")
+                logger.info(f"[Strategy Path] ROOT node child sum (for comparison): daily={child_daily}, mtd={child_mtd}, ytd={child_ytd}")
+                print(f"[Strategy Path] ROOT node {root_id} using direct sum: daily={daily_sum}, mtd={mtd_sum}, ytd={ytd_sum}")
+                print(f"[Strategy Path] ROOT node child sum (for comparison): daily={child_daily}, mtd={child_mtd}, ytd={child_ytd}")
             else:
-                # No children - sum all facts directly
-                daily_sum = Decimal(str(facts_df['pnl_daily'].sum())) if 'pnl_daily' in facts_df.columns else Decimal('0')
-                mtd_sum = Decimal(str(facts_df['pnl_commission'].sum())) if 'pnl_commission' in facts_df.columns else Decimal('0')
-                ytd_sum = Decimal(str(facts_df['pnl_trade'].sum())) if 'pnl_trade' in facts_df.columns else Decimal('0')
-                
                 logger.info(f"[Strategy Path] ROOT node {root_id} ('{root_node.node_name}') summing all facts: daily={daily_sum}, mtd={mtd_sum}, ytd={ytd_sum}")
                 print(f"[Strategy Path] ROOT node {root_id} summing all {len(facts_df)} facts: daily={daily_sum}, mtd={mtd_sum}, ytd={ytd_sum}")
-                
-                # CRITICAL: Set ALL 3 metrics explicitly
-                results[root_id] = {
-                    'daily': daily_sum,
-                    'mtd': mtd_sum,
-                    'ytd': ytd_sum
-                }
+            
+            # CRITICAL: Set ROOT to direct sum (matches get_unified_pnl)
+            results[root_id] = {
+                'daily': daily_sum,
+                'mtd': mtd_sum,
+                'ytd': ytd_sum,
+                'pytd': Decimal('0')  # fact_pnl_use_case_3 doesn't have pytd, default to 0
+            }
     
     # Count matched nodes
     matched_count = sum(1 for node_id in hierarchy_dict.keys() if results.get(node_id, {}).get('daily', Decimal('0')) != Decimal('0'))
@@ -636,6 +645,95 @@ def get_unified_pnl(
         rollup_results = _calculate_legacy_rollup(
             session, use_case_id, hierarchy_dict, children_dict, leaf_nodes
         )
+    
+    # Phase 5.7: Execute Type 3 (Math) Rules after SQL Rollup
+    # Apply math rules to rollup_results to update node values based on arithmetic expressions
+    from app.models import MetadataRule
+    from app.engine.waterfall import load_rules
+    
+    try:
+        # Load all rules for the use case
+        rules_dict = load_rules(session, use_case_id)
+        all_rules = list(rules_dict.values())
+        
+        # Filter for Type 3 (Math) rules
+        math_rules = [
+            rule for rule in all_rules
+            if rule.rule_type == 'NODE_ARITHMETIC' and rule.rule_expression
+        ]
+        
+        if math_rules:
+            logger.info(f"[Math Rules] Found {len(math_rules)} Type 3 rules to execute")
+            print(f"[Math Rules] Found {len(math_rules)} Type 3 rules to execute")
+            
+            # Resolve execution order using topological sort
+            try:
+                sorted_math_rules = DependencyResolver.resolve_execution_order(
+                    math_rules,
+                    hierarchy_dict
+                )
+                logger.info(f"[Math Rules] Resolved execution order for {len(sorted_math_rules)} rules")
+                print(f"[Math Rules] Execution order resolved: {len(sorted_math_rules)} rules")
+                
+                # Execute math rules in dependency order
+                for rule in sorted_math_rules:
+                    if rule.rule_type != 'NODE_ARITHMETIC':
+                        continue  # Skip non-Type 3 rules (shouldn't happen, but safety check)
+                    
+                    target_node = rule.node_id
+                    
+                    # Evaluate the arithmetic expression using current rollup_results
+                    try:
+                        calculated_values = evaluate_type3_expression(
+                            rule.rule_expression,
+                            rollup_results,
+                            measure='daily'  # Default measure, expression applies to all measures
+                        )
+                        
+                        # Update rollup_results with calculated values
+                        # CRITICAL: Ensure all values are Decimal
+                        rollup_results[target_node] = {
+                            'daily': Decimal(str(calculated_values.get('daily', Decimal('0')))),
+                            'mtd': Decimal(str(calculated_values.get('mtd', Decimal('0')))),
+                            'ytd': Decimal(str(calculated_values.get('ytd', Decimal('0')))),
+                            'pytd': Decimal(str(calculated_values.get('pytd', Decimal('0')))),
+                        }
+                        
+                        logger.info(f"Math Rule: Calculated {target_node} = {rule.rule_expression} -> "
+                                  f"daily={calculated_values.get('daily', 0)}")
+                        print(f"[Math Rules] Calculated {target_node} = {rule.rule_expression} -> "
+                              f"daily={calculated_values.get('daily', 0)}")
+                        
+                    except Exception as e:
+                        logger.error(f"Error executing Type 3 rule {rule.rule_id} for node {target_node}: {e}")
+                        print(f"[Math Rules] ERROR executing rule for {target_node}: {e}")
+                        # Set to zero on error (or keep existing value if node already has one)
+                        if target_node not in rollup_results:
+                            rollup_results[target_node] = {
+                                'daily': Decimal('0'),
+                                'mtd': Decimal('0'),
+                                'ytd': Decimal('0'),
+                                'pytd': Decimal('0'),
+                            }
+                
+                logger.info(f"[Math Rules] Successfully executed {len(sorted_math_rules)} Type 3 rules")
+                print(f"[Math Rules] Successfully executed {len(sorted_math_rules)} Type 3 rules")
+                
+            except CircularDependencyError as e:
+                logger.error(f"Circular dependency detected in Type 3 rules: {e}")
+                print(f"[Math Rules] ERROR: Circular dependency detected: {e}")
+                # Continue with rollup_results as-is (without math rule updates)
+            except Exception as e:
+                logger.error(f"Error resolving Type 3 rule dependencies: {e}")
+                print(f"[Math Rules] ERROR resolving dependencies: {e}")
+                # Continue with rollup_results as-is
+        else:
+            logger.debug(f"[Math Rules] No Type 3 rules found for use case {use_case_id}")
+            
+    except Exception as e:
+        logger.error(f"Error loading or executing Type 3 rules: {e}")
+        print(f"[Math Rules] ERROR loading rules: {e}")
+        # Continue with rollup_results as-is (don't fail the entire request)
     
     # Calculate totals from rollup results (sum of root nodes)
     root_nodes = [node_id for node_id, node in hierarchy_dict.items() if node.parent_node_id is None]

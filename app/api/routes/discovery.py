@@ -907,7 +907,7 @@ def get_discovery_view(
                 # Check for latest calculation run
                 latest_run = db.query(CalculationRun).filter(
                     CalculationRun.use_case_id == use_case.use_case_id
-                ).order_by(desc(CalculationRun.created_at)).first()
+                ).order_by(desc(CalculationRun.executed_at)).first()
                 
                 if latest_run:
                     # Load calculated results for this run

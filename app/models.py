@@ -49,6 +49,7 @@ class UseCase(Base):
     Core use case table - each use case is an isolated sandbox.
     
     Phase 5.1: Added input_table_name to support table-per-use-case strategy.
+    Phase 5.1: Added measure_mapping to support different column names across use cases.
     """
     __tablename__ = "use_cases"
 
@@ -62,6 +63,11 @@ class UseCase(Base):
     
     # Phase 5.1: Table-per-use-case strategy
     input_table_name = Column(String(100), nullable=True)  # NULL = use default fact_pnl_gold
+    
+    # Phase 5.1: Measure mapping for different column names across use cases
+    # Format: {"daily": "daily_pnl", "mtd": "mtd_pnl", "ytd": "ytd_pnl"}
+    # Example UC 3: {"daily": "pnl_daily", "mtd": "pnl_commission", "ytd": "pnl_trade"}
+    measure_mapping = Column(JSONB, nullable=True)
 
     # Relationships
     rules = relationship("MetadataRule", back_populates="use_case", cascade="all, delete-orphan")
@@ -99,6 +105,9 @@ class UseCaseRun(Base):
 class DimHierarchy(Base):
     """
     Hierarchy dimension - tree structure imported from Atlas.
+    
+    Phase 5.1: Added rollup_driver and rollup_value_source for metadata-driven auto-rollup.
+    Explicit Mapping: Added mapping_value for explicit fact table key mapping.
     """
     __tablename__ = "dim_hierarchy"
 
@@ -108,6 +117,13 @@ class DimHierarchy(Base):
     depth = Column(Integer, nullable=False)
     is_leaf = Column(Boolean, nullable=False, default=False)
     atlas_source = Column(String)  # Track which Atlas version this came from
+    
+    # Phase 5.1: Metadata-driven auto-rollup support
+    rollup_driver = Column(String(50), nullable=True)  # Column name in fact table to filter on (e.g., 'cc_id', 'category_code', 'strategy')
+    rollup_value_source = Column(String(20), nullable=True, default='node_id')  # Which hierarchy value to use: 'node_id' or 'node_name'
+    
+    # Explicit Mapping: Explicit value to match in the fact table (overrides node_id)
+    mapping_value = Column(String, nullable=True)
 
     # Self-referential relationship for tree traversal
     parent = relationship("DimHierarchy", remote_side=[node_id], backref="children")

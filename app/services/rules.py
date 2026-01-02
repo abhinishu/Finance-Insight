@@ -323,30 +323,59 @@ def create_manual_rule(
         return new_rule
 
 
-def preview_rule_impact(sql_where: str, session: Session) -> RulePreviewResponse:
+def preview_rule_impact(sql_where: str, session: Session, use_case_id: Optional[UUID] = None) -> RulePreviewResponse:
     """
     Preview the impact of a rule by counting affected rows.
     
     Args:
         sql_where: SQL WHERE clause to preview
         session: Database session
+        use_case_id: Optional use case ID to determine which fact table to query.
+                     If provided, checks use_case.input_table_name to select the correct table.
+                     If None or use_case.input_table_name is None, defaults to fact_pnl_gold.
     
     Returns:
         RulePreviewResponse with affected row count
     """
-    # Get total row count
-    total_rows = session.query(FactPnlGold).count()
+    # Whitelist of allowed fact table names (security: prevent SQL injection)
+    ALLOWED_TABLES = {'fact_pnl_gold', 'fact_pnl_entries', 'fact_pnl_use_case_3'}
+    
+    # Determine which table to query based on use_case_id
+    table_name = 'fact_pnl_gold'  # Default table
+    
+    if use_case_id:
+        use_case = session.query(UseCase).filter(UseCase.use_case_id == use_case_id).first()
+        if use_case and use_case.input_table_name:
+            candidate_table = use_case.input_table_name.strip()
+            # Security: Validate table name against whitelist
+            if candidate_table in ALLOWED_TABLES:
+                table_name = candidate_table
+                logger.info(f"[Rule Preview] Using table '{table_name}' for use case {use_case_id} (from input_table_name)")
+            else:
+                logger.warning(f"[Rule Preview] Invalid table name '{candidate_table}' for use case {use_case_id}, defaulting to fact_pnl_gold")
+        else:
+            logger.info(f"[Rule Preview] Use case {use_case_id} has no input_table_name, defaulting to fact_pnl_gold")
+    else:
+        logger.info(f"[Rule Preview] No use_case_id provided, defaulting to fact_pnl_gold")
+    
+    # Get total row count from the determined table
+    from sqlalchemy import text
+    try:
+        count_query = text(f"SELECT COUNT(*) FROM {table_name}")
+        total_rows = session.execute(count_query).scalar() or 0
+    except Exception as e:
+        logger.error(f"Error counting total rows in {table_name}: {e}")
+        raise ValueError(f"Failed to count rows in table '{table_name}': {str(e)}")
     
     # Count affected rows (safely execute SQL)
     try:
         # Use parameterized query for safety
-        from sqlalchemy import text
-        query = text(f"SELECT COUNT(*) FROM fact_pnl_gold WHERE {sql_where}")
+        query = text(f"SELECT COUNT(*) FROM {table_name} WHERE {sql_where}")
         result = session.execute(query).scalar()
         affected_rows = result or 0
     except Exception as e:
-        logger.error(f"Error previewing rule: {e}")
-        raise ValueError(f"Invalid SQL WHERE clause: {str(e)}")
+        logger.error(f"Error previewing rule on table {table_name}: {e}")
+        raise ValueError(f"Invalid SQL WHERE clause for table '{table_name}': {str(e)}")
     
     percentage = (affected_rows / total_rows * 100) if total_rows > 0 else 0.0
     
