@@ -3,13 +3,19 @@ Calculation API routes for Finance-Insight
 Provides endpoints for triggering calculations and retrieving results.
 """
 
+import io
 import logging
 from typing import Optional
 from uuid import UUID
 
+import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy import and_
 from sqlalchemy.orm import Session, joinedload
+from openpyxl import load_workbook
+from openpyxl.styles import Font, PatternFill, Alignment
+from openpyxl.utils import get_column_letter
 
 from app.api.dependencies import get_db
 from decimal import Decimal
@@ -756,6 +762,240 @@ def get_calculation_results(
         run_timestamp=run_timestamp.isoformat() if run_timestamp else "",
         hierarchy=[root_node] if root_node else [],
         is_outdated=is_outdated
+    )
+
+
+# Phase 5.9: Measure Labels Map for Business Rule formatting (matching frontend)
+MEASURE_LABELS = {
+    'daily_pnl': 'Daily P&L',
+    'pnl_commission': 'Commission P&L',
+    'pnl_trade': 'Trading P&L',
+    'daily_commission': 'Commission P&L',
+    'daily_trade': 'Trading P&L',
+    'ytd_pnl': 'YTD P&L'
+}
+
+
+def format_business_rule_text(rule: Optional[Dict[str, Any]]) -> str:
+    """
+    Format business rule text for Excel export.
+    Returns "Sum(Measure): logic_en" if measure_name is specified, otherwise just logic_en.
+    """
+    if not rule:
+        return ''
+    
+    logic_en = rule.get('logic_en') or rule.get('sql_where') or ''
+    if not logic_en:
+        # Check for Math rule
+        if rule.get('rule_type') == 'NODE_ARITHMETIC' and rule.get('rule_expression'):
+            return rule.get('rule_expression', '')
+        return ''
+    
+    measure_name = rule.get('measure_name')
+    if measure_name and measure_name != 'daily_pnl' and measure_name in MEASURE_LABELS:
+        measure_label = MEASURE_LABELS[measure_name]
+        return f"Sum({measure_label}): {logic_en}"
+    
+    return logic_en
+
+
+def flatten_hierarchy_for_export(nodes: List[ResultsNode], parent_path: str = '', max_depth: int = 0) -> List[Dict[str, Any]]:
+    """
+    Flatten hierarchy tree for Excel export.
+    Returns a list of dictionaries with all node data.
+    """
+    result = []
+    
+    for node in nodes:
+        # Calculate indentation level based on depth
+        indent = '  ' * node.depth
+        
+        # Format Business Rule text
+        business_rule = format_business_rule_text(node.rule)
+        
+        row = {
+            'Dimension Node': f"{indent}{node.node_name}",
+            'Original Daily P&L': float(node.natural_value.get('daily', '0') or 0),
+            'Adjusted Daily P&L': float(node.adjusted_value.get('daily', '0') or 0),
+            'Reconciliation Plug': float(node.plug.get('daily', '0') or 0),
+            'Business Rule': business_rule,
+            'Depth': node.depth,
+            'Is Leaf': node.is_leaf,
+        }
+        
+        result.append(row)
+        
+        # Recursively process children
+        if node.children:
+            result.extend(flatten_hierarchy_for_export(node.children, parent_path, max_depth))
+    
+    return result
+
+
+@router.get("/use-cases/{use_case_id}/export/reconciliation")
+def export_reconciliation_excel(
+    use_case_id: UUID,
+    run_id: Optional[UUID] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Export Executive View (Tab 4) reconciliation data to Excel.
+    
+    Returns an Excel file with:
+    - Dimension Node (with indentation for hierarchy)
+    - Original Daily P&L
+    - Adjusted Daily P&L
+    - Reconciliation Plug
+    - Business Rule (formatted with "Sum(Measure): logic" if applicable)
+    
+    Formatting:
+    - Bold text for parent nodes (depth < max_depth)
+    - Red text for negative P&L values
+    - Auto-adjusted column widths
+    
+    Args:
+        use_case_id: Use case UUID
+        run_id: Optional run ID (defaults to most recent)
+        db: Database session
+    
+    Returns:
+        Excel file (.xlsx) download
+    """
+    # Reuse get_calculation_results to get the hierarchy with all data
+    # This ensures we get natural values, adjusted values, and rules correctly
+    results_response = get_calculation_results(use_case_id, run_id, db)
+    
+    if not results_response.hierarchy or len(results_response.hierarchy) == 0:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No calculation results found for use case '{use_case_id}'"
+        )
+    
+    # Flatten hierarchy for export
+    flat_data = flatten_hierarchy_for_export(results_response.hierarchy)
+    
+    if not flat_data:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No data to export for use case '{use_case_id}'"
+        )
+    
+    # Find max depth for formatting
+    max_depth = max(row['Depth'] for row in flat_data) if flat_data else 0
+    
+    # Create DataFrame
+    df = pd.DataFrame(flat_data)
+    
+    # Reorder columns for better presentation (exclude internal fields)
+    column_order = [
+        'Dimension Node',
+        'Original Daily P&L',
+        'Adjusted Daily P&L',
+        'Reconciliation Plug',
+        'Business Rule'
+    ]
+    df = df[column_order]
+    
+    # Create Excel file in memory
+    excel_buffer = io.BytesIO()
+    
+    with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+        df.to_excel(writer, sheet_name='Reconciliation', index=False)
+        
+        # Get the workbook and worksheet for formatting
+        workbook = writer.book
+        worksheet = writer.sheets['Reconciliation']
+        
+        # Format header row
+        header_fill = PatternFill(start_color='366092', end_color='366092', fill_type='solid')
+        header_font = Font(bold=True, color='FFFFFF', size=11)
+        
+        for cell in worksheet[1]:
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = Alignment(horizontal='center', vertical='center')
+        
+        # Format data rows
+        for row_idx, row_data in enumerate(flat_data, start=2):  # Start at 2 (skip header)
+            depth = row_data['Depth']
+            is_leaf = row_data['Is Leaf']
+            
+            # Red text for negative P&L values (check first, then apply bold if needed)
+            pnl_columns = ['B', 'C', 'D']  # Original, Adjusted, Plug columns
+            for col_letter in pnl_columns:
+                cell = worksheet[f'{col_letter}{row_idx}']
+                if cell.value is not None:
+                    try:
+                        value = float(cell.value)
+                        is_negative = value < 0
+                        # Apply formatting: bold if parent, red if negative
+                        if not is_leaf and is_negative:
+                            cell.font = Font(bold=True, color='FF0000')  # Bold + Red
+                        elif not is_leaf:
+                            cell.font = Font(bold=True)  # Bold only
+                        elif is_negative:
+                            cell.font = Font(color='FF0000')  # Red only
+                    except (ValueError, TypeError):
+                        # For non-numeric values, just apply bold if parent
+                        if not is_leaf:
+                            cell.font = Font(bold=True)
+            
+            # Bold Dimension Node column for parent nodes
+            if not is_leaf:
+                cell = worksheet[f'A{row_idx}']
+                if cell.value is not None:
+                    if cell.font and cell.font.color and cell.font.color.rgb == 'FF0000':
+                        # Preserve red if already set
+                        cell.font = Font(bold=True, color='FF0000')
+                    else:
+                        cell.font = Font(bold=True)
+            
+            # Bold Business Rule column for parent nodes
+            if not is_leaf:
+                cell = worksheet[f'E{row_idx}']  # Business Rule column
+                if cell.value is not None:
+                    cell.font = Font(bold=True)
+        
+        # Auto-adjust column widths
+        for column in worksheet.columns:
+            max_length = 0
+            column_letter = get_column_letter(column[0].column)
+            
+            for cell in column:
+                try:
+                    if cell.value:
+                        # Account for indentation in Dimension Node column
+                        if column_letter == 'A':  # Dimension Node column
+                            # Count leading spaces for indentation
+                            cell_str = str(cell.value)
+                            # Estimate width: 1 char = ~1.2 units, add padding
+                            length = len(cell_str) * 1.2
+                        else:
+                            length = len(str(cell.value))
+                        
+                        if length > max_length:
+                            max_length = length
+                except:
+                    pass
+            
+            # Set width with padding
+            adjusted_width = min(max_length + 2, 50)  # Cap at 50
+            worksheet.column_dimensions[column_letter].width = adjusted_width
+        
+        # Freeze header row
+        worksheet.freeze_panes = 'A2'
+    
+    excel_buffer.seek(0)
+    
+    # Generate filename
+    use_case = db.query(UseCase).filter(UseCase.use_case_id == use_case_id).first()
+    use_case_name_safe = "".join(c for c in (use_case.name if use_case else 'Unknown') if c.isalnum() or c in (' ', '-', '_')).rstrip()
+    filename = f"reconciliation_{use_case_name_safe}_{str(use_case_id)[:8]}.xlsx"
+    
+    return StreamingResponse(
+        iter([excel_buffer.getvalue()]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
 
 

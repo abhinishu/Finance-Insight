@@ -2803,15 +2803,60 @@ const RuleEditor: React.FC = () => {
     }
   }
 
-  // Handle Execute Business Rules (with Pre-Flight)
+  // Handle Execute Business Rules (direct calculation like Tab 4)
   const handleExecuteBusinessRules = async () => {
     if (!selectedUseCaseId) {
       setError('Please select a use case first.')
       return
     }
 
-    // Show Pre-Flight modal first
-    await loadExecutionPlan()
+    setCalculating(true)
+    setError(null)
+    setCalculationResult(null)
+
+    try {
+      const response = await axios.post(
+        `${API_BASE_URL}/api/v1/use-cases/${selectedUseCaseId}/calculate`
+      )
+
+      // Show success message
+      const rulesCount = response.data.rules_applied || 0
+      const totalPlug = response.data.total_plug?.daily || 0
+      const formattedPlug = new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD',
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      }).format(totalPlug)
+
+      console.log(`[TAB 3] Calculation complete: ${rulesCount} rules applied, Total Plug: ${formattedPlug}`)
+
+      // Update last calculated timestamp
+      if (response.data.run_timestamp) {
+        setLastCalculated(response.data.run_timestamp)
+        setIsCalculationOutdated(false)
+      }
+
+      // Automatically refresh hierarchy data after calculation succeeds
+      // Small delay to ensure backend has finished writing results
+      if (selectedUseCase && selectedUseCaseId) {
+        setTimeout(async () => {
+          await loadHierarchyForUseCase(selectedUseCaseId, selectedUseCase.atlas_structure_id)
+          // Also reload rules to refresh icons
+          await loadRules(selectedUseCaseId)
+        }, 500)
+      }
+
+      // Show success alert/notification
+      setCalculationResult(`✅ Calculation complete! ${rulesCount} rules applied. Total Plug: ${formattedPlug}`)
+      setTimeout(() => setCalculationResult(null), 5000) // Clear after 5 seconds
+
+    } catch (err: any) {
+      console.error('[TAB 3] Failed to run calculation:', err)
+      setError(err.response?.data?.detail || 'Failed to run calculation. Please try again.')
+    } finally {
+      setCalculating(false)
+    }
   }
 
   // Confirm and Run Calculation (from Pre-Flight modal)

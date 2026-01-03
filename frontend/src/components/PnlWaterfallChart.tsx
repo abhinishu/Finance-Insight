@@ -10,6 +10,41 @@ interface PnlWaterfallChartProps {
 }
 
 /**
+ * Format currency in compact form with higher precision for millions (e.g., "$1.203M", "$50k", "$100")
+ */
+const formatCurrencyCompact = (value: number): string => {
+  const absValue = Math.abs(value)
+  const sign = value < 0 ? '-' : ''
+  
+  if (absValue >= 1000000) {
+    // Show 3 decimal places for millions for better accuracy (e.g., "$1.203M" instead of "$1.2M")
+    return `${sign}$${(absValue / 1000000).toFixed(3)}M`
+  } else if (absValue >= 1000) {
+    return `${sign}$${(absValue / 1000).toFixed(0)}k`
+  } else {
+    return `${sign}$${absValue.toFixed(0)}`
+  }
+}
+
+/**
+ * Truncate label to maxLength with ellipsis
+ */
+const truncateLabel = (label: string, maxLength: number = 15): string => {
+  if (label.length <= maxLength) return label
+  return label.substring(0, maxLength - 3) + '...'
+}
+
+/**
+ * Determine rule type from rule name
+ */
+const getRuleType = (ruleName: string): 'Manual Override' | 'Logic Adjustment' => {
+  if (ruleName.toLowerCase().includes('override') || ruleName.toLowerCase().includes('manual')) {
+    return 'Manual Override'
+  }
+  return 'Logic Adjustment'
+}
+
+/**
  * P&L Waterfall Chart Component
  * Visualizes the "bridge" from Original P&L to Adjusted P&L
  * Shows each rule's impact as a step in the waterfall
@@ -26,8 +61,10 @@ const PnlWaterfallChart: React.FC<PnlWaterfallChartProps> = ({
     x: number
     y: number
     ruleName: string
+    fullRuleName: string
     value: number
     contribution: number
+    ruleType: 'Manual Override' | 'Logic Adjustment'
   } | null>(null)
   
   // Calculate total adjustment for contribution percentage
@@ -38,6 +75,7 @@ const PnlWaterfallChart: React.FC<PnlWaterfallChartProps> = ({
   const waterfallData = useMemo(() => {
     const steps: Array<{
       name: string
+      fullName: string
       value: number
       start: number
       end: number
@@ -50,10 +88,11 @@ const PnlWaterfallChart: React.FC<PnlWaterfallChartProps> = ({
     // Add original P&L as starting point
     steps.push({
       name: 'Original P&L',
+      fullName: 'Original P&L',
       value: originalPnl,
       start: 0,
       end: originalPnl,
-      color: '#6b7280', // Gray
+      color: '#1e3a8a', // Navy Blue
       type: 'start'
     })
     
@@ -64,7 +103,8 @@ const PnlWaterfallChart: React.FC<PnlWaterfallChartProps> = ({
       const color = item.impact >= 0 ? '#10b981' : '#ef4444' // Green for positive, red for negative
       
       steps.push({
-        name: item.ruleName.length > 25 ? item.ruleName.substring(0, 22) + '...' : item.ruleName,
+        name: truncateLabel(item.ruleName, 15), // Truncated for X-axis
+        fullName: item.ruleName, // Full name for tooltip
         value: item.impact,
         start: start,
         end: end,
@@ -78,28 +118,18 @@ const PnlWaterfallChart: React.FC<PnlWaterfallChartProps> = ({
     // Add final adjusted P&L
     steps.push({
       name: 'Adjusted P&L',
+      fullName: 'Adjusted P&L',
       value: adjustedPnl,
       start: 0,
       end: adjustedPnl,
-      color: '#3b82f6', // Blue
+      color: '#374151', // Dark Gray
       type: 'end'
     })
     
     return steps
   }, [attributionData, originalPnl, adjustedPnl])
   
-  // Format currency (simplified for axis)
-  const formatCurrency = (value: number): string => {
-    const isNegative = value < 0
-    const absValue = Math.abs(value)
-    const formatted = new Intl.NumberFormat('en-US', {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
-    }).format(absValue)
-    return isNegative ? `(${formatted})` : formatted
-  }
-  
-  // Format currency for tooltip (full precision)
+  // Format currency for tooltip (full precision with sign)
   const formatCurrencyFull = (value: number): string => {
     const isNegative = value < 0
     const absValue = Math.abs(value)
@@ -107,19 +137,12 @@ const PnlWaterfallChart: React.FC<PnlWaterfallChartProps> = ({
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     }).format(absValue)
-    return isNegative ? `(${formatted})` : formatted
+    return isNegative ? `-$${formatted}` : `+$${formatted}`
   }
   
   // Format simplified numbers for Y-axis (e.g., "$5M", "$500k")
   const formatAxisLabel = (value: number): string => {
-    const absValue = Math.abs(value)
-    if (absValue >= 1000000) {
-      return `$${(absValue / 1000000).toFixed(1)}M`
-    } else if (absValue >= 1000) {
-      return `$${(absValue / 1000).toFixed(0)}k`
-    } else {
-      return `$${absValue.toFixed(0)}`
-    }
+    return formatCurrencyCompact(value)
   }
   
   // Calculate chart dimensions
@@ -142,6 +165,8 @@ const PnlWaterfallChart: React.FC<PnlWaterfallChartProps> = ({
   const valueRange = maxValue - adjustedMinValue
   const scale = valueRange > 0 ? chartHeight / valueRange : 1
   const zeroY = chartHeight - (0 - adjustedMinValue) * scale // Y position of zero line
+  const xAxisY = chartHeight + 20 // Y position for X-axis labels
+  const labelRotation = -45 // Rotate labels -45 degrees for readability
   
   return (
     <div style={{
@@ -160,7 +185,7 @@ const PnlWaterfallChart: React.FC<PnlWaterfallChartProps> = ({
       
       {/* Simple SVG-based Waterfall Chart */}
       <div style={{ overflowX: 'auto', marginBottom: '1rem' }}>
-        <svg width={chartWidth} height={chartHeight + 100} style={{ border: '1px solid #e5e7eb' }}>
+        <svg width={chartWidth} height={chartHeight + 200} style={{ border: '1px solid #e5e7eb' }}>
           {/* Zero line (highlighted) */}
           <line
             x1={0}
@@ -223,27 +248,45 @@ const PnlWaterfallChart: React.FC<PnlWaterfallChartProps> = ({
                     rx={4}
                     style={{ cursor: 'default' }}
                   />
+                  {/* X-axis label (rotated) */}
                   <text
                     x={x + barWidth / 2}
-                    y={step.value >= 0 ? y - 8 : y + barHeight + 18}
+                    y={xAxisY + 30}
                     fill="#1f2937"
-                    fontSize="11"
-                    fontWeight="600"
-                    textAnchor="middle"
+                    fontSize="10"
+                    fontWeight="500"
+                    textAnchor="end"
+                    transform={`rotate(${labelRotation} ${x + barWidth / 2} ${xAxisY + 30})`}
                   >
                     {step.name}
                   </text>
-                  <text
-                    x={x + barWidth / 2}
-                    y={step.value >= 0 ? y + barHeight / 2 : y + barHeight / 2}
-                    fill="white"
-                    fontSize="10"
-                    fontWeight="700"
-                    textAnchor="middle"
-                    dominantBaseline="middle"
-                  >
-                    ${formatCurrency(step.value)}
-                  </text>
+                  {/* Value label - positioned above/below bar if too short */}
+                  {barHeight > 25 ? (
+                    // Inside bar if tall enough
+                    <text
+                      x={x + barWidth / 2}
+                      y={step.value >= 0 ? y + barHeight / 2 : y + barHeight / 2}
+                      fill="white"
+                      fontSize="10"
+                      fontWeight="700"
+                      textAnchor="middle"
+                      dominantBaseline="middle"
+                    >
+                      {formatCurrencyCompact(step.value)}
+                    </text>
+                  ) : (
+                    // Above/below bar if too short
+                    <text
+                      x={x + barWidth / 2}
+                      y={step.value >= 0 ? y - 8 : y + barHeight + 18}
+                      fill={step.value >= 0 ? '#10b981' : '#ef4444'}
+                      fontSize="10"
+                      fontWeight="700"
+                      textAnchor="middle"
+                    >
+                      {formatCurrencyCompact(step.value)}
+                    </text>
+                  )}
                 </g>
               )
             } else {
@@ -256,7 +299,8 @@ const PnlWaterfallChart: React.FC<PnlWaterfallChartProps> = ({
               const isHovered = hoveredBar === index
               // Find the full rule name from attributionData
               const ruleIndex = index - 1 // Subtract 1 because first bar is "Original P&L"
-              const fullRuleName = attributionData[ruleIndex]?.ruleName || step.name
+              const fullRuleName = attributionData[ruleIndex]?.ruleName || step.fullName
+              const ruleType = getRuleType(fullRuleName)
               
               return (
                 <g key={index}>
@@ -282,22 +326,23 @@ const PnlWaterfallChart: React.FC<PnlWaterfallChartProps> = ({
                     style={{ cursor: onBarClick ? 'pointer' : 'default' }}
                     onMouseEnter={(e) => {
                       setHoveredBar(index)
-                      const rect = e.currentTarget.getBoundingClientRect()
-                      const svg = e.currentTarget.closest('svg')
-                      if (svg) {
-                        const svgRect = svg.getBoundingClientRect()
-                        // Calculate contribution percentage
-                        const contribution = totalAdjustment > 0 
-                          ? (Math.abs(step.value) / totalAdjustment) * 100 
-                          : 0
-                        setTooltip({
-                          x: rect.left - svgRect.left + rect.width / 2,
-                          y: rect.top - svgRect.top - 10,
-                          ruleName: fullRuleName,
-                          value: step.value,
-                          contribution
-                        })
-                      }
+                      // Calculate contribution percentage
+                      const contribution = totalAdjustment > 0 
+                        ? (Math.abs(step.value) / totalAdjustment) * 100 
+                        : 0
+                      // Position tooltip centered at the bottom of the chart
+                      const tooltipX = chartWidth / 2 // Center of chart
+                      const tooltipY = chartHeight + 60 // Position below the chart (below X-axis labels)
+                      
+                      setTooltip({
+                        x: tooltipX,
+                        y: tooltipY,
+                        ruleName: truncateLabel(fullRuleName, 50), // Truncated for tooltip header
+                        fullRuleName: fullRuleName, // Full name for tooltip body
+                        value: step.value,
+                        contribution,
+                        ruleType
+                      })
                     }}
                     onMouseLeave={() => {
                       setHoveredBar(null)
@@ -309,120 +354,161 @@ const PnlWaterfallChart: React.FC<PnlWaterfallChartProps> = ({
                       }
                     }}
                   />
+                  {/* X-axis label (rotated) */}
                   <text
                     x={x + barWidth / 2}
-                    y={step.value >= 0 ? stepY - stepHeight - 8 : stepY + stepHeight + 18}
+                    y={xAxisY + 30}
                     fill="#1f2937"
-                    fontSize="9"
+                    fontSize="10"
                     fontWeight="500"
-                    textAnchor="middle"
+                    textAnchor="end"
+                    transform={`rotate(${labelRotation} ${x + barWidth / 2} ${xAxisY + 30})`}
                   >
                     {step.name}
                   </text>
-                  <text
-                    x={x + barWidth / 2}
-                    y={step.value >= 0 ? stepY - stepHeight / 2 : stepY + stepHeight / 2}
-                    fill="white"
-                    fontSize="9"
-                    fontWeight="700"
-                    textAnchor="middle"
-                    dominantBaseline="middle"
-                  >
-                    {step.value >= 0 ? '+' : ''}${formatCurrency(step.value)}
-                  </text>
+                  {/* Value label - positioned above/below bar if too short */}
+                  {stepHeight > 25 ? (
+                    // Inside bar if tall enough
+                    <text
+                      x={x + barWidth / 2}
+                      y={step.value >= 0 ? stepY - stepHeight / 2 : stepY + stepHeight / 2}
+                      fill="white"
+                      fontSize="10"
+                      fontWeight="700"
+                      textAnchor="middle"
+                      dominantBaseline="middle"
+                    >
+                      {formatCurrencyCompact(step.value)}
+                    </text>
+                  ) : (
+                    // Above/below bar if too short
+                    <text
+                      x={x + barWidth / 2}
+                      y={step.value >= 0 ? stepY - stepHeight - 8 : stepY + stepHeight + 18}
+                      fill={step.value >= 0 ? '#10b981' : '#ef4444'}
+                      fontSize="10"
+                      fontWeight="700"
+                      textAnchor="middle"
+                    >
+                      {formatCurrencyCompact(step.value)}
+                    </text>
+                  )}
                 </g>
               )
             }
           })}
           
-          {/* Enhanced Tooltip - Clean White Style */}
-          {tooltip && (
-            <g>
-              {/* Tooltip background with enhanced shadow (shadow-xl) */}
-              <defs>
-                <filter id="shadow-xl" x="-50%" y="-50%" width="200%" height="200%">
-                  <feGaussianBlur in="SourceAlpha" stdDeviation="4"/>
-                  <feOffset dx="0" dy="4" result="offsetblur"/>
-                  <feComponentTransfer>
-                    <feFuncA type="linear" slope="0.25"/>
-                  </feComponentTransfer>
-                  <feMerge>
-                    <feMergeNode/>
-                    <feMergeNode in="SourceGraphic"/>
-                  </feMerge>
-                </filter>
-                {/* Semi-transparent white background (white/95) */}
-                <rect id="tooltip-bg" x={tooltip.x - 130} y={tooltip.y - 80} width={260} height={75} rx={8}/>
-              </defs>
-              {/* Background with white/95 opacity and border */}
-              <rect
-                x={tooltip.x - 130}
-                y={tooltip.y - 80}
-                width={260}
-                height={75}
-                fill="rgba(255, 255, 255, 0.95)"
-                stroke="#e5e7eb"
-                strokeWidth={1}
-                rx={8}
-                filter="url(#shadow-xl)"
-              />
-              {/* Rule Name (Bold) - with leading-relaxed spacing */}
-              <text
-                x={tooltip.x}
-                y={tooltip.y - 55}
-                fill="#1f2937"
-                fontSize="12"
-                fontWeight="700"
-                textAnchor="middle"
-                style={{ lineHeight: '1.625' }}
-              >
-                {tooltip.ruleName.length > 40 ? tooltip.ruleName.substring(0, 37) + '...' : tooltip.ruleName}
-              </text>
-              {/* Impact (Formatted Currency) - with leading-relaxed spacing */}
-              <text
-                x={tooltip.x}
-                y={tooltip.y - 30}
-                fill={tooltip.value >= 0 ? '#10b981' : '#ef4444'}
-                fontSize="11"
-                fontWeight="600"
-                fontFamily="monospace"
-                textAnchor="middle"
-                style={{ lineHeight: '1.625' }}
-              >
-                Impact: ${formatCurrencyFull(tooltip.value)}
-              </text>
-              {/* Contribution Percentage - with leading-relaxed spacing */}
-              <text
-                x={tooltip.x}
-                y={tooltip.y - 10}
-                fill="#6b7280"
-                fontSize="10"
-                textAnchor="middle"
-                style={{ lineHeight: '1.625' }}
-              >
-                Contribution: {tooltip.contribution.toFixed(1)}% of Total Adjustment
-              </text>
-              {/* Click hint - with leading-relaxed spacing */}
-              <text
-                x={tooltip.x}
-                y={tooltip.y + 8}
-                fill="#9ca3af"
-                fontSize="9"
-                fontStyle="italic"
-                textAnchor="middle"
-                style={{ lineHeight: '1.625' }}
-              >
-                Click to view breakdown
-              </text>
-            </g>
-          )}
+          {/* Enhanced Tooltip - Professional Style with Full Rule Logic */}
+          {tooltip && (() => {
+            const tooltipWidth = 300
+            const tooltipHeight = 120
+            // Position tooltip centered at the bottom of the chart
+            const tooltipX = tooltip.x - tooltipWidth / 2 // Center the tooltip on the X position
+            const tooltipY = tooltip.y // Already positioned below chart
+            
+            return (
+              <g>
+                {/* Tooltip background with enhanced shadow */}
+                <defs>
+                  <filter id="shadow-xl" x="-50%" y="-50%" width="200%" height="200%">
+                    <feGaussianBlur in="SourceAlpha" stdDeviation="4"/>
+                    <feOffset dx="0" dy="4" result="offsetblur"/>
+                    <feComponentTransfer>
+                      <feFuncA type="linear" slope="0.25"/>
+                    </feComponentTransfer>
+                    <feMerge>
+                      <feMergeNode/>
+                      <feMergeNode in="SourceGraphic"/>
+                    </feMerge>
+                  </filter>
+                </defs>
+                
+                {/* Background with white/95 opacity and border */}
+                <rect
+                  x={tooltipX}
+                  y={tooltipY}
+                  width={tooltipWidth}
+                  height={tooltipHeight}
+                  fill="rgba(255, 255, 255, 0.98)"
+                  stroke="#e5e7eb"
+                  strokeWidth={1.5}
+                  rx={8}
+                  filter="url(#shadow-xl)"
+                />
+                
+                {/* Header: Full Business Rule Logic (No truncation) */}
+                <text
+                  x={tooltipX + tooltipWidth / 2}
+                  y={tooltipY + 20}
+                  fill="#1f2937"
+                  fontSize="12"
+                  fontWeight="700"
+                  textAnchor="middle"
+                  style={{ lineHeight: '1.5' }}
+                >
+                  Business Rule
+                </text>
+                {/* Full rule name - wrapped if needed */}
+                <text
+                  x={tooltipX + tooltipWidth / 2}
+                  y={tooltipY + 40}
+                  fill="#374151"
+                  fontSize="11"
+                  fontWeight="500"
+                  textAnchor="middle"
+                  style={{ lineHeight: '1.4' }}
+                >
+                  {tooltip.fullRuleName.length > 50 
+                    ? tooltip.fullRuleName.substring(0, 47) + '...' 
+                    : tooltip.fullRuleName}
+                </text>
+                
+                {/* Impact: Exact value with sign */}
+                <text
+                  x={tooltipX + tooltipWidth / 2}
+                  y={tooltipY + 65}
+                  fill={tooltip.value >= 0 ? '#10b981' : '#ef4444'}
+                  fontSize="13"
+                  fontWeight="700"
+                  fontFamily="monospace"
+                  textAnchor="middle"
+                >
+                  Impact: {formatCurrencyFull(tooltip.value)}
+                </text>
+                
+                {/* Type: Manual Override or Logic Adjustment */}
+                <text
+                  x={tooltipX + tooltipWidth / 2}
+                  y={tooltipY + 85}
+                  fill="#6b7280"
+                  fontSize="10"
+                  fontWeight="600"
+                  textAnchor="middle"
+                >
+                  Type: {tooltip.ruleType}
+                </text>
+                
+                {/* Contribution Percentage */}
+                <text
+                  x={tooltipX + tooltipWidth / 2}
+                  y={tooltipY + 105}
+                  fill="#9ca3af"
+                  fontSize="9"
+                  textAnchor="middle"
+                  fontStyle="italic"
+                >
+                  {tooltip.contribution.toFixed(1)}% of Total Adjustment • Click to drill down
+                </text>
+              </g>
+            )
+          })()}
         </svg>
       </div>
       
       {/* Legend */}
       <div style={{ display: 'flex', gap: '1.5rem', marginTop: '1rem', fontSize: '0.875rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <div style={{ width: '16px', height: '16px', backgroundColor: '#6b7280', borderRadius: '2px' }}></div>
+          <div style={{ width: '16px', height: '16px', backgroundColor: '#1e3a8a', borderRadius: '2px' }}></div>
           <span style={{ color: '#6b7280' }}>Original P&L</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -434,7 +520,7 @@ const PnlWaterfallChart: React.FC<PnlWaterfallChartProps> = ({
           <span style={{ color: '#6b7280' }}>Negative Impact</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <div style={{ width: '16px', height: '16px', backgroundColor: '#3b82f6', borderRadius: '2px' }}></div>
+          <div style={{ width: '16px', height: '16px', backgroundColor: '#374151', borderRadius: '2px' }}></div>
           <span style={{ color: '#6b7280' }}>Adjusted P&L</span>
         </div>
       </div>
