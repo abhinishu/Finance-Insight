@@ -1,0 +1,48 @@
+[
+  {
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "name": "America Trading P&L",
+    "description": "TEST",
+    "owner_id": "default_user",
+    "atlas_structure_id": "MOCK_ATLAS_v1",
+    "status": "ACTIVE",
+    "created_at": "2025-12-20T12:16:43.025063",
+    "input_table_name": null,
+    "measure_mapping": {
+      "mtd": "mtd_pnl",
+      "ytd": "ytd_pnl",
+      "pytd": "pytd_pnl",
+      "daily": "daily_pnl"
+    }
+  },
+  {
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "name": "Project Sterling - Multi-Dimensional Facts",
+    "description": "High-complexity dataset for F2B testing with multi-measure waterfall calibration",
+    "owner_id": "sterling_import",
+    "atlas_structure_id": "MOCK_ATLAS_v1",
+    "status": "ACTIVE",
+    "created_at": "2025-12-24T09:58:18.223779",
+    "input_table_name": null,
+    "measure_mapping": {
+      "mtd": "wtd_amount",
+      "ytd": "ytd_amount",
+      "daily": "daily_amount"
+    }
+  },
+  {
+    "use_case_id": "fce60983-0328-496b-b6e1-34249ec5aa5a",
+    "name": "America Cash Equity Trading",
+    "description": "Use Case 3: America Cash Equity Trading Structure with Type 1, 2, 2B, and 3 rules",
+    "owner_id": "system",
+    "atlas_structure_id": "America Cash Equity Trading Structure",
+    "status": "ACTIVE",
+    "created_at": "2026-01-01T18:20:51.429382",
+    "input_table_name": "fact_pnl_use_case_3",
+    "measure_mapping": {
+      "mtd": "pnl_commission",
+      "ytd": "pnl_trade",
+      "daily": "pnl_daily"
+    }
+  }
+]

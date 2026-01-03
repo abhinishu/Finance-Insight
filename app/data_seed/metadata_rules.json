@@ -1,0 +1,562 @@
+[
+  {
+    "rule_id": 5,
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "node_id": "AMER_CASH_EQUITIES",
+    "predicate_json": {
+      "conditions": [
+        {
+          "field": "strategy_id",
+          "value": [
+            "S1",
+            "S2",
+            "S3"
+          ],
+          "operator": "in"
+        }
+      ],
+      "conjunction": "AND"
+    },
+    "sql_where": "strategy_id IN ('S1', 'S2', 'S3')",
+    "logic_en": "strategy_id in (S1, S2, S3)",
+    "last_modified_by": "user123",
+    "created_at": "2025-12-21T12:10:42.320647",
+    "last_modified_at": "2025-12-21T12:10:42.320647",
+    "rule_type": "FILTER",
+    "measure_name": "daily_pnl",
+    "rule_expression": null,
+    "rule_dependencies": null
+  },
+  {
+    "rule_id": 39,
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "node_id": "AMER_CASH_EQUITIES",
+    "predicate_json": {
+      "conditions": [
+        {
+          "field": "strategy_id",
+          "value": [
+            "S1",
+            "S2",
+            "S3"
+          ],
+          "operator": "in"
+        }
+      ],
+      "conjunction": "AND"
+    },
+    "sql_where": "strategy_id IN ('S1', 'S2', 'S3')",
+    "logic_en": "strategy_id in (S1, S2, S3)",
+    "last_modified_by": "user123",
+    "created_at": "2025-12-26T22:23:15.938284",
+    "last_modified_at": "2025-12-26T22:23:15.938284",
+    "rule_type": "FILTER",
+    "measure_name": "daily_pnl",
+    "rule_expression": null,
+    "rule_dependencies": null
+  },
+  {
+    "rule_id": 40,
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "node_id": "AMER_CASH_NY",
+    "predicate_json": {
+      "conditions": [
+        {
+          "field": "book_id",
+          "value": "B_TEST_99",
+          "operator": "equals"
+        }
+      ],
+      "conjunction": "AND"
+    },
+    "sql_where": "book_id = 'B_TEST_99'",
+    "logic_en": "book_id equals 'B_TEST_99'",
+    "last_modified_by": "user123",
+    "created_at": "2025-12-26T22:23:15.938284",
+    "last_modified_at": "2025-12-26T22:23:15.938284",
+    "rule_type": "FILTER",
+    "measure_name": "daily_pnl",
+    "rule_expression": null,
+    "rule_dependencies": null
+  },
+  {
+    "rule_id": 41,
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "node_id": "CC_AMER_CASH_NY_002",
+    "predicate_json": {
+      "conditions": [
+        {
+          "field": "book_id",
+          "value": "B01",
+          "operator": "not_equals"
+        }
+      ],
+      "conjunction": "AND"
+    },
+    "sql_where": "book_id != 'B01'",
+    "logic_en": "exclude bookn \"B01\"",
+    "last_modified_by": "user123",
+    "created_at": "2025-12-26T22:23:15.938284",
+    "last_modified_at": "2025-12-26T22:23:15.938284",
+    "rule_type": "FILTER",
+    "measure_name": "daily_pnl",
+    "rule_expression": null,
+    "rule_dependencies": null
+  },
+  {
+    "rule_id": 42,
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "node_id": "ROOT",
+    "predicate_json": {
+      "conditions": [
+        {
+          "field": "book_id",
+          "value": "B_TEST_99",
+          "operator": "equals"
+        }
+      ],
+      "conjunction": "AND"
+    },
+    "sql_where": "book_id = 'B_TEST_99'",
+    "logic_en": "book_id equals 'B_TEST_99'",
+    "last_modified_by": "user123",
+    "created_at": "2025-12-26T22:23:15.938284",
+    "last_modified_at": "2025-12-26T22:23:15.938284",
+    "rule_type": "FILTER",
+    "measure_name": "daily_pnl",
+    "rule_expression": null,
+    "rule_dependencies": null
+  },
+  {
+    "rule_id": 38,
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "node_id": "AMER",
+    "predicate_json": {
+      "conditions": [
+        {
+          "field": "strategy_id",
+          "value": "CORE",
+          "operator": "not_equals"
+        },
+        {
+          "field": "book_id",
+          "value": [
+            "TEST"
+          ],
+          "operator": "not_in"
+        }
+      ],
+      "conjunction": "AND"
+    },
+    "sql_where": "strategy_id != 'CORE' AND book_id NOT IN ('TEST')",
+    "logic_en": "Exclude Strategy ='CORE' and BOOKS NOT IN TEST",
+    "last_modified_by": "user123",
+    "created_at": "2025-12-26T22:23:15.938284",
+    "last_modified_at": "2025-12-26T22:51:46.453238",
+    "rule_type": "FILTER",
+    "measure_name": "daily_pnl",
+    "rule_expression": null,
+    "rule_dependencies": null
+  },
+  {
+    "rule_id": 43,
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "node_id": "CC_AMER_CASH_NY_003",
+    "predicate_json": {
+      "conditions": [
+        {
+          "field": "book_id",
+          "value": "TEST123",
+          "operator": "not_equals"
+        }
+      ],
+      "conjunction": "AND"
+    },
+    "sql_where": "book_id != 'TEST123'",
+    "logic_en": "book_id not equals 'TEST123'",
+    "last_modified_by": "user123",
+    "created_at": "2025-12-26T22:55:42.627131",
+    "last_modified_at": "2025-12-26T22:55:42.627131",
+    "rule_type": "FILTER",
+    "measure_name": "daily_pnl",
+    "rule_expression": null,
+    "rule_dependencies": null
+  },
+  {
+    "rule_id": 44,
+    "use_case_id": "a26121d8-9e01-4e70-9761-588b1854fe06",
+    "node_id": "AMER_PROG_TRADING",
+    "predicate_json": {
+      "conditions": [
+        {
+          "field": "cc_id",
+          "value": "1234",
+          "operator": "not_equals"
+        }
+      ],
+      "conjunction": "AND"
+    },
+    "sql_where": "cc_id != '1234'",
+    "logic_en": "cc_id not equals '1234'",
+    "last_modified_by": "user123",
+    "created_at": "2025-12-26T22:56:10.288896",
+    "last_modified_at": "2025-12-26T22:56:10.288896",
+    "rule_type": "FILTER",
+    "measure_name": "daily_pnl",
+    "rule_expression": null,
+    "rule_dependencies": null
+  },
+  {
+    "rule_id": 2,
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "node_id": "AMER_CASH_NY",
+    "predicate_json": null,
+    "sql_where": null,
+    "logic_en": "book_id equals 'B_TEST_99'",
+    "last_modified_by": "user123",
+    "created_at": "2025-12-21T00:04:33.839549",
+    "last_modified_at": "2026-01-02T20:44:01.339309",
+    "rule_type": "NODE_ARITHMETIC",
+    "measure_name": "daily_pnl",
+    "rule_expression": "CC_AMER_CASH_NY_001 + CC_AMER_CASH_NY_004 + CC_AMER_PROG_TRADING_005",
+    "rule_dependencies": []
+  },
+  {
+    "rule_id": 4,
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "node_id": "AMER",
+    "predicate_json": {
+      "conditions": [
+        {
+          "field": "strategy_id",
+          "value": "CORE",
+          "operator": "equals"
+        }
+      ],
+      "conjunction": "AND"
+    },
+    "sql_where": "strategy = 'CORE'",
+    "logic_en": "strategy equals 'CORE'",
+    "last_modified_by": "user123",
+    "created_at": "2025-12-21T11:21:37.511663",
+    "last_modified_at": "2026-01-02T21:13:55.389632",
+    "rule_type": "FILTER",
+    "measure_name": "daily_pnl",
+    "rule_expression": null,
+    "rule_dependencies": null
+  },
+  {
+    "rule_id": 3,
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "node_id": "CC_AMER_CASH_NY_002",
+    "predicate_json": {
+      "conditions": [
+        {
+          "field": "book_id",
+          "value": "B01",
+          "operator": "not_equals"
+        }
+      ],
+      "conjunction": "AND"
+    },
+    "sql_where": "book_id != 'B01'",
+    "logic_en": "book_id not equals 'B01'",
+    "last_modified_by": "user123",
+    "created_at": "2025-12-21T00:56:18.426333",
+    "last_modified_at": "2026-01-02T19:02:45.782823",
+    "rule_type": "FILTER",
+    "measure_name": "daily_pnl",
+    "rule_expression": null,
+    "rule_dependencies": null
+  },
+  {
+    "rule_id": 64,
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "node_id": "CC_AMER_PROG_TRADING_007",
+    "predicate_json": null,
+    "sql_where": null,
+    "logic_en": null,
+    "last_modified_by": "user123",
+    "created_at": "2026-01-02T19:52:17.064924",
+    "last_modified_at": "2026-01-02T19:52:17.064924",
+    "rule_type": "NODE_ARITHMETIC",
+    "measure_name": "daily_pnl",
+    "rule_expression": "CC_AMER_PROG_TRADING_007 * 0.5",
+    "rule_dependencies": []
+  },
+  {
+    "rule_id": 65,
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "node_id": "CC_AMER_CASH_NY_004",
+    "predicate_json": null,
+    "sql_where": null,
+    "logic_en": null,
+    "last_modified_by": "user123",
+    "created_at": "2026-01-02T19:53:06.164750",
+    "last_modified_at": "2026-01-02T19:53:06.164750",
+    "rule_type": "NODE_ARITHMETIC",
+    "measure_name": "daily_pnl",
+    "rule_expression": "CC_AMER_CASH_NY_004 * 1",
+    "rule_dependencies": []
+  },
+  {
+    "rule_id": 66,
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "node_id": "CC_AMER_CASH_NY_003",
+    "predicate_json": null,
+    "sql_where": null,
+    "logic_en": null,
+    "last_modified_by": "user123",
+    "created_at": "2026-01-02T19:53:47.981284",
+    "last_modified_at": "2026-01-02T19:53:47.981284",
+    "rule_type": "NODE_ARITHMETIC",
+    "measure_name": "daily_pnl",
+    "rule_expression": "CC_AMER_CASH_NY_003",
+    "rule_dependencies": []
+  },
+  {
+    "rule_id": 67,
+    "use_case_id": "b90f1708-4087-4117-9820-9226ed1115bb",
+    "node_id": "CC_AMER_PROG_TRADING_005",
+    "predicate_json": {
+      "conditions": [
+        {
+          "field": "book_id",
+          "value": "TEST9",
+          "operator": "equals"
+        }
+      ],
+      "conjunction": "AND"
+    },
+    "sql_where": "book_id = 'TEST9'",
+    "logic_en": "book_id equals 'TEST9'",
+    "last_modified_by": "user123",
+    "created_at": "2026-01-02T20:50:17.521452",
+    "last_modified_at": "2026-01-02T20:50:48.890765",
+    "rule_type": "FILTER",
+    "measure_name": "pnl_commission",
+    "rule_expression": null,
+    "rule_dependencies": null
+  },
+  {
+    "rule_id": 84,
+    "use_case_id": "fce60983-0328-496b-b6e1-34249ec5aa5a",
+    "node_id": "NODE_11",
+    "predicate_json": {
+      "conditions": [
+        {
+          "field": "strategy",
+          "value": "ETF Amer",
+          "operator": "equals"
+        }
+      ],
+      "conjunction": "AND"
+    },
+    "sql_where": "strategy = 'ETF Amer'",
+    "logic_en": "strategy equals 'ETF Amer'",
+    "last_modified_by": "user123",
+    "created_at": "2026-01-03T20:02:33.606860",
+    "last_modified_at": "2026-01-03T20:02:33.606860",
+    "rule_type": "FILTER",
+    "measure_name": "daily_pnl",
+    "rule_expression": null,
+    "rule_dependencies": null
+  },
+  {
+    "rule_id": 76,
+    "use_case_id": "fce60983-0328-496b-b6e1-34249ec5aa5a",
+    "node_id": "NODE_5",
+    "predicate_json": {
+      "conditions": [
+        {
+          "field": "strategy",
+          "value": "Commissions (Non Swap)",
+          "operator": "equals"
+        }
+      ],
+      "conjunction": "AND"
+    },
+    "sql_where": "strategy = 'Commissions (Non Swap)'",
+    "logic_en": "strategy equals 'Commissions (Non Swap)'",
+    "last_modified_by": "user123",
+    "created_at": "2026-01-03T18:59:33.472880",
+    "last_modified_at": "2026-01-03T18:59:35.556087",
+    "rule_type": "FILTER",
+    "measure_name": "pnl_commission",
+    "rule_expression": null,
+    "rule_dependencies": null
+  },
+  {
+    "rule_id": 85,
+    "use_case_id": "fce60983-0328-496b-b6e1-34249ec5aa5a",
+    "node_id": "NODE_12",
+    "predicate_json": {
+      "conditions": [
+        {
+          "field": "process_1",
+          "value": "MSET",
+          "operator": "equals"
+        }
+      ],
+      "conjunction": "AND"
+    },
+    "sql_where": "process_1 = 'MSET'",
+    "logic_en": "process_1 equals 'MSET'",
+    "last_modified_by": "user123",
+    "created_at": "2026-01-03T20:02:48.667125",
+    "last_modified_at": "2026-01-03T20:02:48.667125",
+    "rule_type": "FILTER",
+    "measure_name": "daily_pnl",
+    "rule_expression": null,
+    "rule_dependencies": null
+  },
+  {
+    "rule_id": 77,
+    "use_case_id": "fce60983-0328-496b-b6e1-34249ec5aa5a",
+    "node_id": "NODE_6",
+    "predicate_json": {
+      "conditions": [
+        {
+          "field": "strategy",
+          "value": "Commissions (Non Swap)",
+          "operator": "equals"
+        },
+        {
+          "field": "process_2",
+          "value": [
+            "SWAP COMMISSION",
+            "SD COMMISSION"
+          ],
+          "operator": "in"
+        }
+      ],
+      "conjunction": "AND"
+    },
+    "sql_where": "strategy = 'Commissions (Non Swap)' AND process_2 IN ('SWAP COMMISSION', 'SD COMMISSION')",
+    "logic_en": "strategy equals 'Commissions (Non Swap)' AND process_2 in (SWAP COMMISSION, SD COMMISSION)",
+    "last_modified_by": "user123",
+    "created_at": "2026-01-03T19:11:04.110495",
+    "last_modified_at": "2026-01-03T19:49:16.594595",
+    "rule_type": "FILTER",
+    "measure_name": "pnl_trade",
+    "rule_expression": null,
+    "rule_dependencies": null
+  },
+  {
+    "rule_id": 78,
+    "use_case_id": "fce60983-0328-496b-b6e1-34249ec5aa5a",
+    "node_id": "NODE_4",
+    "predicate_json": null,
+    "sql_where": null,
+    "logic_en": null,
+    "last_modified_by": "user123",
+    "created_at": "2026-01-03T19:50:24.193676",
+    "last_modified_at": "2026-01-03T19:50:24.193676",
+    "rule_type": "NODE_ARITHMETIC",
+    "measure_name": "daily_pnl",
+    "rule_expression": "NODE_5 + NODE_6",
+    "rule_dependencies": [
+      "NODE_5",
+      "NODE_6"
+    ]
+  },
+  {
+    "rule_id": 79,
+    "use_case_id": "fce60983-0328-496b-b6e1-34249ec5aa5a",
+    "node_id": "NODE_9",
+    "predicate_json": {
+      "conditions": [
+        {
+          "field": "strategy",
+          "value": "Inventory Management",
+          "operator": "equals"
+        },
+        {
+          "field": "process_2",
+          "value": "Inventory Management",
+          "operator": "equals"
+        }
+      ],
+      "conjunction": "AND"
+    },
+    "sql_where": "strategy = 'Inventory Management' AND process_2 = 'Inventory Management'",
+    "logic_en": "strategy equals 'Inventory Management' AND process_2 equals 'Inventory Management'",
+    "last_modified_by": "user123",
+    "created_at": "2026-01-03T19:52:00.293912",
+    "last_modified_at": "2026-01-03T19:52:00.293912",
+    "rule_type": "FILTER",
+    "measure_name": "daily_pnl",
+    "rule_expression": null,
+    "rule_dependencies": null
+  },
+  {
+    "rule_id": 81,
+    "use_case_id": "fce60983-0328-496b-b6e1-34249ec5aa5a",
+    "node_id": "NODE_8",
+    "predicate_json": null,
+    "sql_where": null,
+    "logic_en": null,
+    "last_modified_by": "user123",
+    "created_at": "2026-01-03T19:56:05.354941",
+    "last_modified_at": "2026-01-03T19:56:05.354941",
+    "rule_type": "NODE_ARITHMETIC",
+    "measure_name": "daily_pnl",
+    "rule_expression": "NODE_7 - NODE_9",
+    "rule_dependencies": [
+      "NODE_7",
+      "NODE_9"
+    ]
+  },
+  {
+    "rule_id": 82,
+    "use_case_id": "fce60983-0328-496b-b6e1-34249ec5aa5a",
+    "node_id": "NODE_7",
+    "predicate_json": null,
+    "sql_where": null,
+    "logic_en": null,
+    "last_modified_by": "user123",
+    "created_at": "2026-01-03T19:58:51.085328",
+    "last_modified_at": "2026-01-03T19:58:51.085328",
+    "rule_type": "NODE_ARITHMETIC",
+    "measure_name": "daily_pnl",
+    "rule_expression": "NODE_3 - NODE_4",
+    "rule_dependencies": [
+      "NODE_3",
+      "NODE_4"
+    ]
+  },
+  {
+    "rule_id": 83,
+    "use_case_id": "fce60983-0328-496b-b6e1-34249ec5aa5a",
+    "node_id": "NODE_10",
+    "predicate_json": {
+      "conditions": [
+        {
+          "field": "strategy",
+          "value": "CRB",
+          "operator": "equals"
+        },
+        {
+          "field": "book",
+          "value": [
+            "MSAL",
+            "ETFUS",
+            "Central Risk Book",
+            "CRB Risk"
+          ],
+          "operator": "in"
+        }
+      ],
+      "conjunction": "AND"
+    },
+    "sql_where": "strategy = 'CRB' AND book IN ('MSAL', 'ETFUS', 'Central Risk Book', 'CRB Risk')",
+    "logic_en": "strategy equals 'CRB' AND book in (MSAL, ETFUS, Central Risk Book, CRB Risk)",
+    "last_modified_by": "user123",
+    "created_at": "2026-01-03T20:02:02.630253",
+    "last_modified_at": "2026-01-03T20:02:02.630253",
+    "rule_type": "FILTER",
+    "measure_name": "daily_pnl",
+    "rule_expression": null,
+    "rule_dependencies": null
+  }
+]

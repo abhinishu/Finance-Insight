@@ -1664,76 +1664,51 @@ const ExecutiveDashboard: React.FC = () => {
     return baseStyle
   }
 
-  // Export Reconciliation CSV
-  const handleExportReconciliation = () => {
-    if (!gridApi) return
-
-    const rowsWithPlug: any[] = []
-    if (gridApi && !gridApi.isDestroyed && typeof gridApi.forEachNode === 'function') {
-      try {
-        gridApi.forEachNode((node) => {
-          if (node && node.data) {
-            const plugDaily = parseFloat(node.data.plug?.daily || 0)
-            const plugMtd = parseFloat(node.data.plug?.mtd || 0)
-            const plugYtd = parseFloat(node.data.plug?.ytd || 0)
-            
-            if (Math.abs(plugDaily) > 0.01 || Math.abs(plugMtd) > 0.01 || Math.abs(plugYtd) > 0.01) {
-              rowsWithPlug.push({
-                'Node ID': node.data.node_id,
-                'Node Name': node.data.node_name,
-                'Natural GL (Daily)': node.data.natural_value?.daily || '0',
-                'Adjusted P&L (Daily)': node.data.adjusted_value?.daily || '0',
-                'Plug (Daily)': node.data.plug?.daily || '0',
-                'Natural GL (MTD)': node.data.natural_value?.mtd || '0',
-                'Adjusted P&L (MTD)': node.data.adjusted_value?.mtd || '0',
-                'Plug (MTD)': node.data.plug?.mtd || '0',
-                'Natural GL (YTD)': node.data.natural_value?.ytd || '0',
-                'Adjusted P&L (YTD)': node.data.adjusted_value?.ytd || '0',
-                'Plug (YTD)': node.data.plug?.ytd || '0',
-                'Rule ID': node.data.rule?.rule_id || '',
-                'Rule Description': node.data.rule?.logic_en || '',
-                'SQL WHERE': node.data.rule?.sql_where || '',
-              })
-            }
-          }
-        })
-      } catch (error) {
-        console.warn('[EXECUTIVE DASHBOARD] Grid forEachNode error (non-critical):', error)
-      }
-    }
-
-    if (rowsWithPlug.length === 0) {
-      alert('No reconciliation plugs found to export.')
+  // Export Reconciliation Excel (Phase 5.9: Backend-generated Excel with formatting)
+  const handleExportReconciliation = async () => {
+    if (!selectedUseCaseId) {
+      setError('Please select a use case first.')
       return
     }
 
-    // Convert to CSV
-    const headers = Object.keys(rowsWithPlug[0])
-    const csvRows = [
-      headers.join(','),
-      ...rowsWithPlug.map(row =>
-        headers.map(header => {
-          const value = row[header]
-          // Escape quotes and wrap in quotes if contains comma
-          if (typeof value === 'string' && (value.includes(',') || value.includes('"') || value.includes('\n'))) {
-            return `"${value.replace(/"/g, '""')}"`
-          }
-          return value
-        }).join(',')
-      ),
-    ]
+    try {
+      // Call the backend Excel export endpoint
+      const response = await axios.get(
+        `${API_BASE_URL}/api/v1/use-cases/${selectedUseCaseId}/export/reconciliation`,
+        {
+          responseType: 'blob', // Important: receive as blob for file download
+        }
+      )
 
-    const csvContent = csvRows.join('\n')
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
-    const link = document.createElement('a')
-    const url = URL.createObjectURL(blob)
-    
-    link.setAttribute('href', url)
-    link.setAttribute('download', `reconciliation_export_${new Date().toISOString().split('T')[0]}.csv`)
-    link.style.visibility = 'hidden'
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
+      // Create download link
+      const url = window.URL.createObjectURL(new Blob([response.data]))
+      const link = document.createElement('a')
+      link.href = url
+      
+      // Extract filename from Content-Disposition header or use default
+      const contentDisposition = response.headers['content-disposition']
+      let filename = `reconciliation_export_${new Date().toISOString().split('T')[0]}.xlsx`
+      if (contentDisposition) {
+        const filenameMatch = contentDisposition.match(/filename="?(.+)"?/i)
+        if (filenameMatch) {
+          filename = filenameMatch[1]
+        }
+      }
+      
+      link.setAttribute('download', filename)
+      link.style.visibility = 'hidden'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      
+      // Clean up the URL object
+      window.URL.revokeObjectURL(url)
+      
+      console.log('[TAB 4] Excel export completed successfully')
+    } catch (err: any) {
+      console.error('[TAB 4] Failed to export Excel:', err)
+      setError(err.response?.data?.detail || 'Failed to export reconciliation data. Please try again.')
+    }
   }
 
   // Handle Run Calculation (same logic as Tab 3)
@@ -1989,10 +1964,26 @@ const ExecutiveDashboard: React.FC = () => {
             )}
           </button>
           <button
-            className="export-button"
             onClick={handleExportReconciliation}
             disabled={!selectedUseCaseId || processedRows.length === 0}
+            style={{
+              background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+              color: 'white',
+              border: 'none',
+              padding: '0.5rem 1rem',
+              borderRadius: '6px',
+              fontSize: '0.875rem',
+              fontWeight: '600',
+              cursor: !selectedUseCaseId || processedRows.length === 0 ? 'not-allowed' : 'pointer',
+              opacity: !selectedUseCaseId || processedRows.length === 0 ? 0.6 : 1,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              transition: 'all 0.2s ease'
+            }}
+            title={!selectedUseCaseId ? 'Please select a use case first' : 'Export reconciliation data to Excel'}
           >
+            <span style={{ fontSize: '1em' }}>📊</span>
             Export Reconciliation
           </button>
         </div>
