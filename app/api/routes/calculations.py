@@ -266,10 +266,49 @@ def get_calculation_results(
             )
     
     # Load rules for this use case to get rule details
-    rules = db.query(MetadataRule).filter(
+    # Phase 5.9: Use explicit column selection to ensure Math rule fields are loaded
+    # SQLAlchemy ORM might not load all columns, so we explicitly select what we need
+    rules_data = db.query(
+        MetadataRule.node_id,
+        MetadataRule.rule_id,
+        MetadataRule.logic_en,
+        MetadataRule.sql_where,
+        MetadataRule.rule_type,         # Critical: Math rule type
+        MetadataRule.rule_expression,   # Critical: Math rule formula
+        MetadataRule.rule_dependencies, # Critical: Math rule dependencies
+        MetadataRule.measure_name      # Phase 5.9: Measure name for display (e.g., 'pnl_commission', 'pnl_trade')
+    ).filter(
         MetadataRule.use_case_id == use_case_id
     ).all()
-    rules_dict = {rule.node_id: rule for rule in rules}
+    
+    # Build lookup dictionary using explicit column values (not ORM objects)
+    # This ensures all fields are accessible, avoiding lazy loading issues
+    # Phase 5.9: SQLAlchemy Row objects from explicit column selection support
+    # direct attribute access (verified via test script)
+    rules_dict = {}
+    for r in rules_data:
+        # Row objects support direct attribute access (r.node_id, r.rule_type, etc.)
+        # Verified: Row objects have both _mapping and attribute access
+        node_id = r.node_id
+        if node_id:
+            rule_dict = {
+                'rule_id': r.rule_id,
+                'logic_en': r.logic_en,
+                'sql_where': r.sql_where,
+                'rule_type': r.rule_type,
+                'rule_expression': r.rule_expression,
+                'rule_dependencies': r.rule_dependencies,
+                'measure_name': r.measure_name  # Phase 5.9: Measure name for display
+            }
+            rules_dict[node_id] = rule_dict
+            
+            # Debug logging for Math rules
+            if rule_dict.get('rule_type') == 'NODE_ARITHMETIC':
+                logger.info(
+                    f"[API] Loaded Math rule for {node_id}: "
+                    f"expression={rule_dict.get('rule_expression')}, "
+                    f"dependencies={rule_dict.get('rule_dependencies')}"
+                )
     
     # Build results dictionary with explicitly mapped rule details
     # Rules are already loaded via the outerjoin above, so we can efficiently map them
@@ -279,7 +318,8 @@ def get_calculation_results(
     default_plug_vector = {'daily': '0', 'mtd': '0', 'ytd': '0', 'pytd': '0'}
     
     for result in results:
-        rule = rules_dict.get(result.node_id)
+        # Phase 5.9: Get rule data from dictionary (now contains plain dicts, not ORM objects)
+        rule_data = rules_dict.get(result.node_id)
         
         # CRITICAL FIX: Ensure measure_vector and plug_vector are dicts with all keys
         adjusted_value_raw = result.measure_vector if result.measure_vector else {}
@@ -304,6 +344,8 @@ def get_calculation_results(
                 'pytd': str(plug_raw.get('pytd', '0')),
             }
         
+        # Phase 5.9: Build rule object from dictionary (not ORM object)
+        # rule_data was already retrieved above (line 304), now contains plain dictionary, not SQLAlchemy object
         results_dict[result.node_id] = {
             'natural_value': {},  # Will be calculated from hierarchy
             'adjusted_value': adjusted_value,
@@ -311,12 +353,18 @@ def get_calculation_results(
             'is_override': result.is_override if result.is_override is not None else False,
             'is_reconciled': result.is_reconciled if result.is_reconciled is not None else True,
             'rule': {
-                'rule_id': str(rule.rule_id) if rule and rule.rule_id else None,
-                'rule_name': rule.logic_en if rule else None,
-                'description': rule.logic_en if rule else None,  # Use logic_en as description
-                'logic_en': rule.logic_en if rule else None,
-                'sql_where': rule.sql_where if rule else None,
-            } if rule else None,
+                'rule_id': str(rule_data.get('rule_id')) if rule_data and rule_data.get('rule_id') else None,
+                'rule_name': rule_data.get('logic_en') if rule_data else None,
+                'description': rule_data.get('logic_en') if rule_data else None,  # Use logic_en as description
+                'logic_en': rule_data.get('logic_en') if rule_data else None,
+                'sql_where': rule_data.get('sql_where') if rule_data else None,
+                # Phase 5.9: Math Rule fields - expose rule_expression for frontend display
+                'rule_type': rule_data.get('rule_type') if rule_data else None,
+                'rule_expression': rule_data.get('rule_expression') if rule_data else None,
+                'rule_dependencies': rule_data.get('rule_dependencies') if rule_data else None,
+                # Phase 5.9: Measure name for display (e.g., 'pnl_commission', 'pnl_trade', 'daily_pnl')
+                'measure_name': rule_data.get('measure_name') if rule_data else None,
+            } if rule_data else None,
         }
     
     # INJECT LIVE BASELINE: Get the TRUE baseline from unified_pnl_service (Tab 2's logic)
@@ -519,10 +567,19 @@ def get_calculation_results(
         sanitized_rule = None
         if rule_data and isinstance(rule_data, dict):
             # CRITICAL FIX: Use .get() with safe defaults to prevent KeyError
+            # Phase 5.9: Include ALL rule fields including Math rule fields (rule_type, rule_expression, rule_dependencies, measure_name)
             sanitized_rule = {
-                'rule_id': int(rule_data.get('rule_id')) if rule_data.get('rule_id') is not None else None,
+                'rule_id': str(rule_data.get('rule_id')) if rule_data.get('rule_id') is not None else None,
+                'rule_name': str(rule_data.get('rule_name', '')) if rule_data.get('rule_name') else None,
+                'description': str(rule_data.get('description', '')) if rule_data.get('description') else None,
                 'logic_en': str(rule_data.get('logic_en', '')) if rule_data.get('logic_en') else None,
                 'sql_where': str(rule_data.get('sql_where', '')) if rule_data.get('sql_where') else None,
+                # Phase 5.9: Math Rule fields - CRITICAL: These were being stripped out!
+                'rule_type': str(rule_data.get('rule_type', '')) if rule_data.get('rule_type') else None,
+                'rule_expression': str(rule_data.get('rule_expression', '')) if rule_data.get('rule_expression') else None,
+                'rule_dependencies': rule_data.get('rule_dependencies') if rule_data.get('rule_dependencies') else None,
+                # Phase 5.9: Measure name for display (e.g., 'pnl_commission', 'pnl_trade', 'daily_pnl')
+                'measure_name': str(rule_data.get('measure_name', '')) if rule_data.get('measure_name') else None,
             }
         
         # Get path

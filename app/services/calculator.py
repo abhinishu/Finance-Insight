@@ -20,6 +20,10 @@ from app.engine.waterfall import (
     load_hierarchy,
     load_rules,
 )
+from app.services.unified_pnl_service import (
+    _calculate_strategy_rollup,
+    _calculate_legacy_rollup,
+)
 from app.models import (
     DimHierarchy,
     FactCalculatedResult,
@@ -40,18 +44,25 @@ logger = logging.getLogger(__name__)
 def apply_rule_to_leaf(
     session: Session, 
     leaf_node_id: str, 
-    rule: MetadataRule
+    rule: MetadataRule,
+    use_case: Optional[UseCase] = None
 ) -> Dict[str, Decimal]:
     """
-    Stage 1: Apply rule to a leaf node by executing sql_where against fact_pnl_gold.
+    Stage 1: Apply rule to a leaf node by executing sql_where against the appropriate fact table.
+    
+    Phase 5.5: Updated to support table-per-use-case strategy via use_case.input_table_name.
     
     Args:
         session: Database session
         leaf_node_id: Leaf node ID (for validation)
         rule: MetadataRule with sql_where clause
+        use_case: Optional UseCase object to determine input table (if None, defaults to fact_pnl_gold)
     
     Returns:
         Dictionary with measure values: {daily: Decimal, mtd: Decimal, ytd: Decimal, pytd: Decimal}
+    
+    Raises:
+        Exception: If SQL execution fails (transaction will be rolled back by caller)
     """
     if not rule.sql_where:
         logger.warning(f"Rule {rule.rule_id} for node {leaf_node_id} has no sql_where clause")
@@ -62,51 +73,126 @@ def apply_rule_to_leaf(
             'pytd': Decimal('0'),
         }
     
-    # Execute SQL WHERE clause against fact_pnl_gold
-    sql_query = f"""
-        SELECT 
-            COALESCE(SUM(daily_pnl), 0) as daily_pnl,
-            COALESCE(SUM(mtd_pnl), 0) as mtd_pnl,
-            COALESCE(SUM(ytd_pnl), 0) as ytd_pnl,
-            COALESCE(SUM(pytd_pnl), 0) as pytd_pnl
-        FROM fact_pnl_gold
-        WHERE {rule.sql_where}
-    """
+    # Validate and sanitize SQL WHERE clause
+    sql_where = rule.sql_where.strip()
+    
+    # Basic validation: Check for dangerous patterns
+    dangerous_patterns = [';', '--', '/*', '*/', 'DROP', 'DELETE', 'UPDATE', 'INSERT', 'ALTER', 'CREATE', 'TRUNCATE']
+    sql_where_upper = sql_where.upper()
+    for pattern in dangerous_patterns:
+        if pattern in sql_where_upper:
+            error_msg = f"Rule {rule.rule_id} for node {leaf_node_id} contains dangerous SQL pattern: {pattern}"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+    
+    # Phase 5.5: Determine which table to query based on use_case.input_table_name
+    table_name = 'fact_pnl_gold'  # Default
+    if use_case and use_case.input_table_name:
+        table_name = use_case.input_table_name
+        logger.info(f"apply_rule_to_leaf: Using table '{table_name}' for use case {use_case.use_case_id}")
+    else:
+        logger.info(f"apply_rule_to_leaf: No use_case or input_table_name provided, defaulting to 'fact_pnl_gold'")
+    
+    # Phase 5.5: Get measure column name based on table and rule.measure_name
+    from app.engine.waterfall import get_measure_column_name
+    measure_name = rule.measure_name or 'daily_pnl'
+    target_column = get_measure_column_name(measure_name, table_name)
+    
+    logger.info(f"apply_rule_to_leaf: Node {leaf_node_id}, measure_name={measure_name}, table={table_name}, target_column={target_column}")
+    
+    # Build SQL query based on table structure
+    if table_name == 'fact_pnl_use_case_3':
+        # Phase 5.9: Use target_column instead of hardcoding pnl_daily
+        # This supports all measures: pnl_daily, pnl_commission, pnl_trade
+        sql_query = f"""
+            SELECT 
+                COALESCE(SUM({target_column}), 0) as measure_value,
+                0 as mtd_pnl,
+                0 as ytd_pnl,
+                0 as pytd_pnl
+            FROM fact_pnl_use_case_3
+            WHERE {sql_where}
+        """
+    elif table_name == 'fact_pnl_entries':
+        # fact_pnl_entries uses daily_amount, wtd_amount, ytd_amount
+        sql_query = f"""
+            SELECT 
+                COALESCE(SUM(daily_amount), 0) as daily_pnl,
+                COALESCE(SUM(wtd_amount), 0) as mtd_pnl,
+                COALESCE(SUM(ytd_amount), 0) as ytd_pnl,
+                0 as pytd_pnl
+            FROM fact_pnl_entries
+            WHERE {sql_where}
+        """
+    else:
+        # Default: fact_pnl_gold uses daily_pnl, mtd_pnl, ytd_pnl, pytd_pnl
+        sql_query = f"""
+            SELECT 
+                COALESCE(SUM(daily_pnl), 0) as daily_pnl,
+                COALESCE(SUM(mtd_pnl), 0) as mtd_pnl,
+                COALESCE(SUM(ytd_pnl), 0) as ytd_pnl,
+                COALESCE(SUM(pytd_pnl), 0) as pytd_pnl
+            FROM fact_pnl_gold
+            WHERE {sql_where}
+        """
     
     try:
         result = session.execute(text(sql_query)).fetchone()
         
+        # Phase 5.9: Map measure_value to 'daily' key so it appears in "Adjusted Daily P&L" column
+        # The measure_value is the sum of the target_column (pnl_daily, pnl_commission, or pnl_trade)
+        measure_value = Decimal(str(result[0] or 0))
+        
         return {
-            'daily': Decimal(str(result[0] or 0)),
+            'daily': measure_value,  # Map to 'daily' key for display in Adjusted Daily P&L column
             'mtd': Decimal(str(result[1] or 0)),
             'ytd': Decimal(str(result[2] or 0)),
             'pytd': Decimal(str(result[3] or 0)),
         }
     except Exception as e:
-        logger.error(f"Error applying rule {rule.rule_id} to leaf {leaf_node_id}: {e}")
-        return {
-            'daily': Decimal('0'),
-            'mtd': Decimal('0'),
-            'ytd': Decimal('0'),
-            'pytd': Decimal('0'),
-        }
+        # CRITICAL: Log the original exception with full traceback
+        logger.error(
+            f"SQL execution failed for rule {rule.rule_id} (node {leaf_node_id}). "
+            f"Table: {table_name}, SQL WHERE clause: {sql_where}. "
+            f"Error: {e}",
+            exc_info=True
+        )
+        # Re-raise the exception so caller can handle transaction rollback
+        raise
 
 
 def waterfall_up(
     hierarchy_dict: Dict,
     children_dict: Dict,
     adjusted_results: Dict[str, Dict[str, Decimal]],
-    max_depth: int
+    max_depth: int,
+    natural_results: Optional[Dict[str, Dict[str, Decimal]]] = None,
+    children_natural_sum: Optional[Dict[str, Dict[str, Decimal]]] = None,
+    skip_nodes: Optional[set] = None
 ) -> Dict[str, Dict[str, Decimal]]:
     """
     Stage 2: Waterfall up - bottom-up aggregation.
     Parent nodes sum the rule-adjusted values of their children.
+    
+    Phase 5.8: Support for Hybrid Parents - Parent nodes that have both:
+    - Direct rows in fact table (captured in natural_results)
+    - Children in hierarchy (summed from adjusted_results)
+    
+    For hybrid parents: Adjusted = Direct (from natural) + Sum(Children)
+    For regular parents: Adjusted = Sum(Children)
+    
+    Phase 5.9: Support for Math Rules - Nodes with Math rules are skipped
+    - Math rules are the final authority for a node's value
+    - waterfall_up must not overwrite Math rule results
     
     Args:
         hierarchy_dict: Dictionary mapping node_id -> node data
         children_dict: Dictionary mapping parent_node_id -> list of children
         adjusted_results: Dictionary with leaf node adjusted values (from Stage 1)
         max_depth: Maximum depth in hierarchy
+        natural_results: Optional dictionary with natural values (for hybrid parent support)
+        children_natural_sum: Optional pre-calculated children natural sums
+        skip_nodes: Optional set of node IDs to skip (nodes with Math rules)
     
     Returns:
         Updated adjusted_results with all parent nodes calculated
@@ -115,37 +201,106 @@ def waterfall_up(
     for depth in range(max_depth, -1, -1):
         for node_id, node in hierarchy_dict.items():
             if node.depth == depth and not node.is_leaf:
+                # Phase 5.9: Skip nodes with Math rules (Math rules are the final authority)
+                if skip_nodes and node_id in skip_nodes:
+                    logger.info(
+                        f"Skipping waterfall aggregation for {node_id} ('{node.node_name}') - "
+                        f"Math Rule already calculated this node"
+                    )
+                    continue
                 # Sum children's adjusted values
                 children = children_dict.get(node_id, [])
                 
-                if children:
-                    # Sum children's adjusted values
-                    adjusted_results[node_id] = {
-                        'daily': sum(
-                            adjusted_results.get(child_id, {}).get('daily', Decimal('0'))
-                            for child_id in children
-                        ),
-                        'mtd': sum(
-                            adjusted_results.get(child_id, {}).get('mtd', Decimal('0'))
-                            for child_id in children
-                        ),
-                        'ytd': sum(
-                            adjusted_results.get(child_id, {}).get('ytd', Decimal('0'))
-                            for child_id in children
-                        ),
-                        'pytd': sum(
-                            adjusted_results.get(child_id, {}).get('pytd', Decimal('0'))
-                            for child_id in children
-                        ),
-                    }
-                else:
-                    # No children - set to zero
-                    adjusted_results[node_id] = {
-                        'daily': Decimal('0'),
-                        'mtd': Decimal('0'),
-                        'ytd': Decimal('0'),
-                        'pytd': Decimal('0'),
-                    }
+                # Calculate children sum
+                children_sum_daily = sum(
+                    adjusted_results.get(child_id, {}).get('daily', Decimal('0'))
+                    for child_id in children
+                )
+                children_sum_mtd = sum(
+                    adjusted_results.get(child_id, {}).get('mtd', Decimal('0'))
+                    for child_id in children
+                )
+                children_sum_ytd = sum(
+                    adjusted_results.get(child_id, {}).get('ytd', Decimal('0'))
+                    for child_id in children
+                )
+                children_sum_pytd = sum(
+                    adjusted_results.get(child_id, {}).get('pytd', Decimal('0'))
+                    for child_id in children
+                )
+                
+                # Phase 5.8: Get parent's direct value from natural_results (for hybrid parents)
+                # This captures direct P&L rows for parent nodes that also have children
+                direct_daily = Decimal('0')
+                direct_mtd = Decimal('0')
+                direct_ytd = Decimal('0')
+                direct_pytd = Decimal('0')
+                
+                # Phase 5.8: Extract direct value for hybrid parents
+                # natural_results[node_id] contains: Direct + Children Natural (for hybrid parents)
+                # We need: Direct = Natural - Children Natural
+                if natural_results and node_id in natural_results:
+                    natural_node = natural_results[node_id]
+                    natural_daily = natural_node.get('daily', Decimal('0'))
+                    natural_mtd = natural_node.get('mtd', Decimal('0'))
+                    natural_ytd = natural_node.get('ytd', Decimal('0'))
+                    natural_pytd = natural_node.get('pytd', Decimal('0'))
+                    
+                    # Calculate children natural sum (if available)
+                    children_natural_daily = Decimal('0')
+                    children_natural_mtd = Decimal('0')
+                    children_natural_ytd = Decimal('0')
+                    children_natural_pytd = Decimal('0')
+                    
+                    if children_natural_sum and node_id in children_natural_sum:
+                        children_natural_daily = children_natural_sum[node_id].get('daily', Decimal('0'))
+                        children_natural_mtd = children_natural_sum[node_id].get('mtd', Decimal('0'))
+                        children_natural_ytd = children_natural_sum[node_id].get('ytd', Decimal('0'))
+                        children_natural_pytd = children_natural_sum[node_id].get('pytd', Decimal('0'))
+                    else:
+                        # Fallback: Calculate children natural sum from natural_results
+                        for child_id in children:
+                            if natural_results and child_id in natural_results:
+                                child_natural = natural_results[child_id]
+                                children_natural_daily += child_natural.get('daily', Decimal('0'))
+                                children_natural_mtd += child_natural.get('mtd', Decimal('0'))
+                                children_natural_ytd += child_natural.get('ytd', Decimal('0'))
+                                children_natural_pytd += child_natural.get('pytd', Decimal('0'))
+                    
+                    # Extract direct value: Direct = Natural - Children Natural
+                    direct_daily = natural_daily - children_natural_daily
+                    direct_mtd = natural_mtd - children_natural_mtd
+                    direct_ytd = natural_ytd - children_natural_ytd
+                    direct_pytd = natural_pytd - children_natural_pytd
+                    
+                    # Only use direct value if it's positive (indicates direct rows exist)
+                    # Negative values indicate calculation error or data inconsistency
+                    if direct_daily < Decimal('0'):
+                        direct_daily = Decimal('0')
+                    if direct_mtd < Decimal('0'):
+                        direct_mtd = Decimal('0')
+                    if direct_ytd < Decimal('0'):
+                        direct_ytd = Decimal('0')
+                    if direct_pytd < Decimal('0'):
+                        direct_pytd = Decimal('0')
+                
+                # Combine: Direct value (from natural) + Sum of children (from adjusted)
+                # For hybrid parents: Adjusted = Direct + Children
+                # For regular parents: Adjusted = Children (direct = 0)
+                adjusted_results[node_id] = {
+                    'daily': direct_daily + children_sum_daily,
+                    'mtd': direct_mtd + children_sum_mtd,
+                    'ytd': direct_ytd + children_sum_ytd,
+                    'pytd': direct_pytd + children_sum_pytd,
+                }
+                
+                # Log hybrid parent detection for debugging
+                if direct_daily > Decimal('0') or direct_mtd > Decimal('0') or direct_ytd > Decimal('0'):
+                    logger.info(
+                        f"Hybrid Parent detected: {node_id} ('{node.node_name}') - "
+                        f"Direct: daily={direct_daily}, Children Sum: daily={children_sum_daily}, "
+                        f"Combined Adjusted: daily={adjusted_results[node_id]['daily']}"
+                    )
     
     return adjusted_results
 
@@ -251,6 +406,7 @@ def calculate_use_case(
     session.commit()
     session.refresh(run)
     
+    # CRITICAL: Wrap entire calculation logic in try/except with proper transaction management
     try:
         # Load hierarchy for the use case's structure
         hierarchy_dict, children_dict, leaf_nodes = load_hierarchy(session, use_case_id)
@@ -264,13 +420,24 @@ def calculate_use_case(
         
         max_depth = max(node.depth for node in hierarchy_dict.values())
         
-        # Load facts
-        facts_df = load_facts(session)
+        # Phase 5.6: Dual-Path Rollup Logic (same as GET /results endpoint)
+        # Get use case to determine which rollup to use
+        use_case = session.query(UseCase).filter(
+            UseCase.use_case_id == use_case_id
+        ).first()
         
-        # Calculate natural rollups (baseline - no rules applied)
-        natural_results = calculate_natural_rollup(
-            hierarchy_dict, children_dict, leaf_nodes, facts_df
-        )
+        if use_case and use_case.input_table_name == 'fact_pnl_use_case_3':
+            # Use Case 3: Strategy rollup (queries fact_pnl_use_case_3)
+            logger.info(f"[Calculator] Using strategy rollup for Use Case 3 (Table: {use_case.input_table_name})")
+            natural_results = _calculate_strategy_rollup(
+                session, use_case_id, hierarchy_dict, children_dict, leaf_nodes
+            )
+        else:
+            # Use Cases 1 & 2: Legacy rollup (queries fact_pnl_gold)
+            logger.info(f"[Calculator] Using legacy rollup for Use Cases 1 & 2")
+            natural_results = _calculate_legacy_rollup(
+                session, use_case_id, hierarchy_dict, children_dict, leaf_nodes
+            )
         
         # Load all rules for use case
         rules_dict = load_rules(session, use_case_id)
@@ -327,15 +494,9 @@ def calculate_use_case(
                         # No descendant has a rule, so apply this rule
                         rule = sql_rules[node_id]
                         
-                        if node.is_leaf:
-                            # For leaf nodes, apply rule directly
-                            rule_adjusted = apply_rule_to_leaf(session, node_id, rule)
-                            adjusted_results[node_id] = rule_adjusted
-                        else:
-                            # For non-leaf nodes, apply rule to get aggregated value
-                            # This executes the SQL WHERE clause against fact table
-                            rule_adjusted = apply_rule_to_leaf(session, node_id, rule)
-                            adjusted_results[node_id] = rule_adjusted
+                        # Apply rule (works for both leaf and non-leaf nodes)
+                        rule_adjusted = apply_rule_to_leaf(session, node_id, rule, use_case)
+                        adjusted_results[node_id] = rule_adjusted
                         
                         rules_applied += 1
                         logger.info(f"Applied SQL rule {rule.rule_id} to node {node_id} (Most Specific Wins)")
@@ -345,11 +506,15 @@ def calculate_use_case(
         
         # Stage 1b: Execute Type 3 Rules (Math/Allocation Rules) in dependency order
         # Phase 5.7: The Math Dependency Engine
+        # Track nodes with Math rules to prevent waterfall_up from overwriting them
+        nodes_with_math_rules = set()
+        
         for rule in sorted_type3_rules:
             if rule.rule_type != 'NODE_ARITHMETIC':
                 continue  # Skip non-Type 3 rules (already handled above)
             
             target_node = rule.node_id
+            nodes_with_math_rules.add(target_node)  # Track this node
             
             # Capture original value for Flight Recorder logging
             original_val = adjusted_results.get(target_node, {}).get('daily', Decimal('0'))
@@ -484,8 +649,11 @@ def calculate_use_case(
         
         # Stage 2: Waterfall Up
         # Perform bottom-up aggregation: parents sum rule-adjusted children
+        # Phase 5.8: Pass natural_results to support hybrid parents (direct + children)
+        # Phase 5.9: Skip nodes with Math rules (they are the final authority)
         adjusted_results = waterfall_up(
-            hierarchy_dict, children_dict, adjusted_results, max_depth
+            hierarchy_dict, children_dict, adjusted_results, max_depth, natural_results, None,
+            skip_nodes=nodes_with_math_rules
         )
         
         # Stage 3: The Plug
@@ -577,10 +745,48 @@ def calculate_use_case(
         }
     
     except Exception as e:
-        # Update run status to failed
-        run.status = RunStatus.FAILED
-        session.commit()
-        logger.error(f"Calculation failed for use case {use_case_id}: {e}", exc_info=True)
+        # CRITICAL: Log the ORIGINAL exception immediately with full traceback
+        logger.error(
+            f"Calculation failed for use case {use_case_id}. "
+            f"Original error: {e}",
+            exc_info=True
+        )
+        
+        # CRITICAL: Explicitly rollback the transaction to reset the connection
+        # This prevents InFailedSqlTransaction errors in subsequent operations
+        try:
+            session.rollback()
+            logger.info(f"Transaction rolled back after calculation failure for use case {use_case_id}")
+        except Exception as rollback_error:
+            logger.error(
+                f"Failed to rollback transaction after calculation error: {rollback_error}",
+                exc_info=True
+            )
+            # Try to close and recreate session if rollback fails
+            try:
+                session.close()
+                logger.warning("Closed session after rollback failure")
+            except Exception as close_error:
+                logger.error(f"Failed to close session: {close_error}", exc_info=True)
+        
+        # Update run status to failed (in a fresh transaction)
+        try:
+            # Start a new transaction for updating run status
+            run.status = RunStatus.FAILED
+            session.commit()
+            logger.info(f"Run status updated to FAILED for use case {use_case_id}")
+        except Exception as status_error:
+            logger.error(
+                f"Failed to update run status to FAILED: {status_error}",
+                exc_info=True
+            )
+            # Rollback the status update attempt
+            try:
+                session.rollback()
+            except Exception:
+                pass
+        
+        # Re-raise the original exception so the UI knows it failed
         raise
 
 

@@ -379,6 +379,7 @@ def _calculate_strategy_rollup(
     print(f"[Strategy Path] Calculating rollup for use_case_id: {use_case_id}")
     
     results = {}
+    direct_values = {}  # Phase 5.8: Store direct values separately for hybrid parent support
     
     # Load facts from fact_pnl_use_case_3
     from app.models import FactPnlUseCase3, UseCase
@@ -451,6 +452,14 @@ def _calculate_strategy_rollup(
             
             logger.debug(f"[Strategy Path] Node {node_id} ('{node_name}') matched {len(matched_facts)} facts, daily={daily_sum}, mtd={mtd_sum}, ytd={ytd_sum}")
             
+            # Store direct value (for hybrid parent support in waterfall_up)
+            direct_values[node_id] = {
+                'daily': daily_sum,
+                'mtd': mtd_sum,
+                'ytd': ytd_sum,
+                'pytd': Decimal('0')
+            }
+            
             results[node_id] = {
                 'daily': daily_sum,
                 'mtd': mtd_sum,
@@ -489,19 +498,48 @@ def _calculate_strategy_rollup(
                     child_daily = sum(results.get(child_id, {}).get('daily', Decimal('0')) for child_id in children)
                     child_mtd = sum(results.get(child_id, {}).get('mtd', Decimal('0')) for child_id in children)
                     child_ytd = sum(results.get(child_id, {}).get('ytd', Decimal('0')) for child_id in children)
-                    
-                    # CRITICAL FIX: Always set parent to sum of children (regardless of direct match)
-                    # This ensures MTD/YTD are aggregated even if parent had a direct match
                     child_pytd = sum(results.get(child_id, {}).get('pytd', Decimal('0')) for child_id in children)
-                    results[node_id] = {
-                        'daily': child_daily,
-                        'mtd': child_mtd,
-                        'ytd': child_ytd,
-                        'pytd': child_pytd
-                    }
                     
-                    logger.info(f"[Strategy Path] Parent {node_id} ('{node.node_name}') aggregated from {len(children)} children: daily={child_daily}, mtd={child_mtd}, ytd={child_ytd}")
-                    print(f"[Strategy Path] Parent {node_id} ('{node.node_name}') aggregated: daily={child_daily}, mtd={child_mtd}, ytd={child_ytd}")
+                    # Phase 5.8: Support for Hybrid Parents
+                    # If parent has a direct value (from Step 1 direct match), preserve it and add children sum
+                    # If parent has no direct value, use children sum only
+                    direct_value = direct_values.get(node_id, {})
+                    direct_daily = direct_value.get('daily', Decimal('0'))
+                    direct_mtd = direct_value.get('mtd', Decimal('0'))
+                    direct_ytd = direct_value.get('ytd', Decimal('0'))
+                    direct_pytd = direct_value.get('pytd', Decimal('0'))
+                    
+                    # Check if this is a hybrid parent (has both direct value and children)
+                    is_hybrid = (direct_daily > Decimal('0') or direct_mtd > Decimal('0') or direct_ytd > Decimal('0'))
+                    
+                    if is_hybrid:
+                        # Hybrid parent: Natural = Direct + Children
+                        results[node_id] = {
+                            'daily': direct_daily + child_daily,
+                            'mtd': direct_mtd + child_mtd,
+                            'ytd': direct_ytd + child_ytd,
+                            'pytd': direct_pytd + child_pytd
+                        }
+                        logger.info(
+                            f"[Strategy Path] Hybrid Parent {node_id} ('{node.node_name}') - "
+                            f"Direct: daily={direct_daily}, Children: daily={child_daily}, "
+                            f"Combined Natural: daily={results[node_id]['daily']}"
+                        )
+                        print(
+                            f"[Strategy Path] Hybrid Parent {node_id} ('{node.node_name}') - "
+                            f"Direct: daily={direct_daily}, Children: daily={child_daily}, "
+                            f"Combined: daily={results[node_id]['daily']}"
+                        )
+                    else:
+                        # Regular parent: Natural = Children only
+                        results[node_id] = {
+                            'daily': child_daily,
+                            'mtd': child_mtd,
+                            'ytd': child_ytd,
+                            'pytd': child_pytd
+                        }
+                        logger.info(f"[Strategy Path] Parent {node_id} ('{node.node_name}') aggregated from {len(children)} children: daily={child_daily}, mtd={child_mtd}, ytd={child_ytd}")
+                        print(f"[Strategy Path] Parent {node_id} ('{node.node_name}') aggregated: daily={child_daily}, mtd={child_mtd}, ytd={child_ytd}")
                 else:
                     # No children - ensure parent has zero values if not already set
                     if node_id not in results:

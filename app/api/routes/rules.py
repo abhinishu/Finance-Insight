@@ -63,11 +63,22 @@ def create_rule(
             # GenAI mode - translate and create rule
             logger.info(f"Creating GenAI rule for use case {use_case_id}, node {rule_data.node_id}")
             
+            # Get use case to determine table name for column mapping
+            use_case = db.query(UseCase).filter(UseCase.use_case_id == use_case_id).first()
+            if not use_case:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Use case '{use_case_id}' not found"
+                )
+            
+            table_name = use_case.input_table_name or 'fact_pnl_gold'
+            
             # Translate natural language to JSON and SQL
             try:
                 predicate_json, sql_where, errors, translation_successful = translate_rule(
                     rule_data.logic_en,
-                    use_cache=True
+                    use_cache=True,
+                    table_name=table_name
                 )
             except Exception as e:
                 # Handle quota errors with user-friendly message
@@ -321,14 +332,21 @@ def translate_genai_rule(
             detail=f"Use case '{use_case_id}' not found"
         )
     
+    # Get table name for column mapping
+    table_name = use_case.input_table_name or 'fact_pnl_gold'
+    
     try:
         logger.info(f"Translating GenAI rule for use case {use_case_id}: {request.logic_en}")
+        
+        # Get table name for column mapping
+        table_name = use_case.input_table_name or 'fact_pnl_gold'
         
         # Call translator (Stage 1: NL → JSON, Stage 2: Validate, Stage 3: JSON → SQL)
         try:
             predicate_json, sql_where, errors, translation_successful = translate_rule(
                 request.logic_en,
-                use_cache=True
+                use_cache=True,
+                table_name=table_name
             )
         except Exception as e:
             # Handle quota errors with user-friendly message
@@ -468,10 +486,20 @@ def bulk_create_rules(
                 elif rule_data.conditions:
                     rule = create_manual_rule(use_case_id, rule_data, db)
                 elif rule_data.logic_en:
+                    # Get use case to determine table name for column mapping
+                    use_case = db.query(UseCase).filter(UseCase.use_case_id == use_case_id).first()
+                    if not use_case:
+                        errors.append(f"Use case '{use_case_id}' not found")
+                        failed_count += 1
+                        continue
+                    
+                    table_name = use_case.input_table_name or 'fact_pnl_gold'
+                    
                     # Translate and create
                     predicate_json, sql_where, translation_errors, translation_successful = translate_rule(
                         rule_data.logic_en,
-                        use_cache=True
+                        use_cache=True,
+                        table_name=table_name
                     )
                     
                     if not translation_successful:

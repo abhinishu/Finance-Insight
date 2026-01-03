@@ -459,7 +459,7 @@ class ResultsNode(BaseModel):
     is_override: bool = Field(..., description="True if a rule was applied to this node")
     is_reconciled: bool = Field(..., description="True if plug is zero (within tolerance)")
     # Rule information (for audit trail)
-    rule: Optional[Dict[str, Any]] = Field(None, description="Rule details if override exists: {rule_id, logic_en, sql_where}")
+    rule: Optional[Dict[str, Any]] = Field(None, description="Rule details if override exists: {rule_id, logic_en, sql_where, rule_type, rule_expression, rule_dependencies, measure_name}")
     # Path array for tree structure
     path: Optional[List[str]] = None
     children: List['ResultsNode'] = []
