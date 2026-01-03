@@ -682,6 +682,9 @@ def get_unified_pnl(
                     
                     target_node = rule.node_id
                     
+                    # Capture original value for Flight Recorder logging
+                    original_val = rollup_results.get(target_node, {}).get('daily', Decimal('0'))
+                    
                     # Evaluate the arithmetic expression using current rollup_results
                     try:
                         calculated_values = evaluate_type3_expression(
@@ -699,10 +702,19 @@ def get_unified_pnl(
                             'pytd': Decimal(str(calculated_values.get('pytd', Decimal('0')))),
                         }
                         
-                        logger.info(f"Math Rule: Calculated {target_node} = {rule.rule_expression} -> "
-                                  f"daily={calculated_values.get('daily', 0)}")
-                        print(f"[Math Rules] Calculated {target_node} = {rule.rule_expression} -> "
-                              f"daily={calculated_values.get('daily', 0)}")
+                        new_val = rollup_results[target_node]['daily']
+                        
+                        # Flight Recorder Logging (High-Visibility)
+                        logger.info(
+                            f"🧮 MATH ENGINE [UNIFIED_PNL]: Node {target_node} | "
+                            f"SQL Value: {original_val} | Rule: {rule.rule_expression} | "
+                            f"➡️ New Value: {new_val}"
+                        )
+                        print(
+                            f"🧮 MATH ENGINE [UNIFIED_PNL]: Node {target_node} | "
+                            f"SQL Value: {original_val} | Rule: {rule.rule_expression} | "
+                            f"➡️ New Value: {new_val}"
+                        )
                         
                     except Exception as e:
                         logger.error(f"Error executing Type 3 rule {rule.rule_id} for node {target_node}: {e}")

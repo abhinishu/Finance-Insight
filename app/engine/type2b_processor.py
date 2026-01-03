@@ -287,3 +287,4 @@ def execute_type_2b_rule(
         logger.error(f"Error evaluating expression for rule {rule.node_id}: {e}", exc_info=True)
         return Decimal('0')
 
+

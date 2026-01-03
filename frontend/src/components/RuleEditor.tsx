@@ -738,7 +738,7 @@ const RuleEditor: React.FC = () => {
       
       const row = {
         ...node,
-        path, // AG-Grid treeData uses getDataPath to extract this - MUST be array of strings
+        path, // Path array for hierarchy tracking (used by manual tree engine) - MUST be array of strings
         hasRule: !!hasRule, // Flag for conditional rendering (ensure boolean)
         rule: rule || null, // Store rule data for recall
         ruleImpact: rule?.estimatedImpact || 0, // Dollar impact for heatmap
@@ -1009,6 +1009,15 @@ const RuleEditor: React.FC = () => {
         }
         
         setRowData(flatData)
+        
+        // Initialize expandedNodes: expand root nodes (depth 0) by default
+        const defaultExpanded = new Set<string>()
+        flatData.forEach(row => {
+          if (row.depth === 0 && !row.is_leaf) {
+            defaultExpanded.add(row.node_id)
+          }
+        })
+        setExpandedNodes(defaultExpanded)
       } catch (flattenError: any) {
         console.error('Failed to flatten hierarchy:', flattenError)
         // Fallback: flatten without rules if there's an error
@@ -1027,6 +1036,15 @@ const RuleEditor: React.FC = () => {
         }
         hierarchy.forEach(node => processNode(node))
         setRowData(fallbackData)
+        
+        // Initialize expandedNodes for fallback data
+        const defaultExpanded = new Set<string>()
+        fallbackData.forEach(row => {
+          if (row.depth === 0 && !row.is_leaf) {
+            defaultExpanded.add(row.node_id)
+          }
+        })
+        setExpandedNodes(defaultExpanded)
       }
     } catch (err: any) {
       console.error('Failed to load hierarchy:', err)
@@ -1093,6 +1111,15 @@ const RuleEditor: React.FC = () => {
       try {
         const flatData = flattenHierarchy(hierarchy)
         setRowData(flatData)
+        
+        // Initialize expandedNodes: expand root nodes (depth 0) by default
+        const defaultExpanded = new Set<string>()
+        flatData.forEach(row => {
+          if (row.depth === 0 && !row.is_leaf) {
+            defaultExpanded.add(row.node_id)
+          }
+        })
+        setExpandedNodes(defaultExpanded)
       } catch (flattenError: any) {
         console.error('Failed to flatten hierarchy:', flattenError)
         // Fallback: flatten without rules if there's an error
@@ -1111,6 +1138,15 @@ const RuleEditor: React.FC = () => {
         }
         hierarchy.forEach(node => processNode(node))
         setRowData(fallbackData)
+        
+        // Initialize expandedNodes for fallback data
+        const defaultExpanded = new Set<string>()
+        fallbackData.forEach(row => {
+          if (row.depth === 0 && !row.is_leaf) {
+            defaultExpanded.add(row.node_id)
+          }
+        })
+        setExpandedNodes(defaultExpanded)
       }
     } catch (err: any) {
       console.error('Failed to load hierarchy:', err)
@@ -1322,20 +1358,202 @@ const RuleEditor: React.FC = () => {
   const [autocompleteOpen, setAutocompleteOpen] = useState<Map<number, boolean>>(new Map())
   const [autocompleteFilter, setAutocompleteFilter] = useState<Map<number, string>>(new Map())
 
-  // Structural Column Cell Renderer with Guide Rails and Expand Toggle (matches ExecutiveDashboard)
-  const StructuralHierarchyCellRenderer: React.FC<ICellRendererParams> = (params) => {
-    const depth = params.data?.depth || 0
+  // Phase 5.7: Helper function to determine if a rule is a Math Rule
+  const isMathRule = (rule: any): boolean => {
+    if (!rule) return false
+    // Primary check: rule_type field
+    if (rule.rule_type === 'NODE_ARITHMETIC') return true
+    // Fallback: If rule has rule_expression but no logic_en or sql_where, it's likely a math rule
+    if (rule.rule_expression && !rule.logic_en && !rule.sql_where) return true
+    return false
+  }
+
+  // Toggle node expansion (Manual Tree Engine)
+  const toggleNodeExpansion = useCallback((nodeId: string) => {
+    setExpandedNodes(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(nodeId)) {
+        newSet.delete(nodeId)
+      } else {
+        newSet.add(nodeId)
+      }
+      return newSet
+    })
+    // Trigger filter update
+    setTimeout(() => {
+      if (gridApi) {
+        gridApi.onFilterChanged()
+      }
+    }, 0)
+  }, [gridApi])
+
+  // Manual Tree Cell Renderer (replaces Native AG-Grid Tree)
+  // Matches DiscoveryScreen.tsx visual density and indentation
+  const nodeNameCellRenderer = useCallback((params: any) => {
+    const data = params.data
+    if (!data) return ''
+    
+    const depth = data.depth || 0
+    const isLeaf = data.is_leaf || false
+    const isExpanded = expandedNodes.has(data.node_id)
+    const paddingLeft = depth * 20 + 8 // 20px per level + 8px base
+    
+    const nodeName = data.node_name || params.value || ''
+    const rule = data.rule
+    const hasRule = data.hasRule || false
+    const isMath = rule ? isMathRule(rule) : false
+    
+    // Chevron for non-leaf nodes
+    const chevron = !isLeaf ? (
+      <span 
+        onClick={(e) => {
+          e.stopPropagation()
+          toggleNodeExpansion(data.node_id)
+        }}
+        style={{ 
+          cursor: 'pointer', 
+          marginRight: '4px',
+          userSelect: 'none',
+          fontSize: '12px',
+          color: '#3498db'
+        }}
+      >
+        {isExpanded ? '▼' : '▶'}
+      </span>
+    ) : (
+      <span style={{ marginRight: '8px', color: '#999' }}>•</span>
+    )
+    
+    // Render rule badge (from HierarchyGroupInnerRenderer logic)
+    const renderRuleBadge = () => {
+      if (!hasRule || !rule) return null
+      
+      if (isMath) {
+        // Math Rule Badge (Blue)
+        return (
+          <span
+            style={{
+              background: '#dbeafe',
+              color: '#1e40af',
+              padding: '0.125rem 0.5rem',
+              borderRadius: '3px',
+              fontSize: '0.7rem',
+              fontWeight: '600',
+              marginLeft: '8px',
+              cursor: 'pointer'
+            }}
+            className="fx-icon-badge"
+            data-fx-icon="true"
+            title={`Math Formula: ${rule.rule_expression || 'No formula'}`}
+            onClick={(e) => {
+              e.stopPropagation()
+              // Trigger parent cell click handler for inheritance overlay
+              if (params.onCellClicked) {
+                params.onCellClicked({
+                  ...params,
+                  event: e.nativeEvent
+                } as any)
+              }
+            }}
+          >
+            Math
+          </span>
+        )
+      } else {
+        // SQL Rule Badge (Yellow/Amber)
+        return (
+          <span
+            style={{
+              background: 'linear-gradient(135deg, #fef3c7, #fbbf24)',
+              color: '#d97706',
+              borderRadius: '3px',
+              padding: '2px 6px',
+              fontSize: '10px',
+              fontWeight: '600',
+              fontFamily: 'monospace',
+              marginLeft: '8px',
+              boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
+              cursor: 'pointer'
+            }}
+            className="fx-icon-badge"
+            data-fx-icon="true"
+            title={`SQL Rule: ${rule.logic_en || rule.sql_where || 'No logic'}`}
+            onClick={(e) => {
+              e.stopPropagation()
+              // Trigger parent cell click handler for inheritance overlay
+              if (params.onCellClicked) {
+                params.onCellClicked({
+                  ...params,
+                  event: e.nativeEvent
+                } as any)
+              }
+            }}
+          >
+            fx
+          </span>
+        )
+      }
+    }
+    
+    return (
+      <div style={{ 
+        paddingLeft: `${paddingLeft}px`,
+        display: 'flex',
+        alignItems: 'center',
+        fontWeight: depth === 0 ? '600' : depth === 1 ? '500' : '400',
+        color: depth === 0 ? '#2c3e50' : '#333'
+      }}>
+        {chevron}
+        <span>{nodeName}</span>
+        {renderRuleBadge()}
+      </div>
+    )
+  }, [expandedNodes, toggleNodeExpansion, isMathRule])
+
+  // External filter: Hide rows whose parents are not expanded
+  const isExternalFilterPresent = useCallback(() => {
+    return true // Always use external filter
+  }, [])
+
+  const doesExternalFilterPass = useCallback((node: any) => {
+    const data = node.data
+    if (!data) return false
+    
+    // Root nodes are always visible
+    if (!data.parent_node_id) return true
+    
+    // Check if all ancestors are expanded
+    const checkAncestors = (currentData: any): boolean => {
+      if (!currentData.parent_node_id) return true // Reached root
+      
+      // Find parent in rowData
+      const parent = rowData.find(r => r.node_id === currentData.parent_node_id)
+      if (!parent) return true // Parent not found, show it
+      
+      // If parent is not expanded, hide this node
+      if (!expandedNodes.has(parent.node_id)) {
+        return false
+      }
+      
+      // Recursively check parent's ancestors
+      return checkAncestors(parent)
+    }
+    
+    return checkAncestors(data)
+  }, [expandedNodes, rowData])
+
+  // Native Tree Group Cell Inner Renderer (for rule badges)
+  // DEPRECATED: Replaced by nodeNameCellRenderer (Manual Tree Engine)
+  // Kept for reference but no longer used
+  const HierarchyGroupInnerRenderer: React.FC<ICellRendererParams> = (params) => {
     const nodeName = params.value || params.data?.node_name || ''
-    const hasChildren = params.data?.children && params.data.children.length > 0
-    // Safely check if node is expanded (can be property or method)
-    const isExpanded = params.node 
-      ? (typeof params.node.isExpanded === 'function' 
-          ? params.node.isExpanded() 
-          : params.node.expanded === true)
-      : false
+    const rule = params.data?.rule
+    const hasRule = params.data?.hasRule || false
+    const isMath = rule ? isMathRule(rule) : false
     
     // Determine node type for icon
     const getNodeIcon = () => {
+      const depth = params.data?.depth || 0
       if (depth === 0) {
         return '🌐' // Globe for Root
       } else if (params.data?.region || nodeName.includes('Americas') || nodeName.includes('EMEA') || nodeName.includes('APAC')) {
@@ -1348,95 +1566,75 @@ const RuleEditor: React.FC = () => {
       return ''
     }
     
-    const toggleExpand = (e: React.MouseEvent) => {
-      e.stopPropagation()
-      if (params.node) {
-        if (typeof params.node.setExpanded === 'function') {
-          params.node.setExpanded(!isExpanded)
-        } else if (typeof params.node.expanded !== 'undefined') {
-          // Fallback: try to toggle expanded property directly
-          params.node.expanded = !isExpanded
-        }
+    // Render rule badge
+    const renderRuleBadge = () => {
+      if (!hasRule || !rule) return null
+      
+      if (isMath) {
+        // Math Rule Badge (Blue)
+        return (
+          <span
+            style={{
+              background: '#dbeafe',
+              color: '#1e40af',
+              padding: '0.125rem 0.5rem',
+              borderRadius: '3px',
+              fontSize: '0.7rem',
+              fontWeight: '600',
+              marginLeft: '8px',
+              cursor: 'pointer'
+            }}
+            className="fx-icon-badge"
+            data-fx-icon="true"
+            title={`Math Formula: ${rule.rule_expression || 'No formula'}`}
+          >
+            Math
+          </span>
+        )
+      } else {
+        // SQL Rule Badge (Yellow/Amber)
+        return (
+          <span
+            style={{
+              background: 'linear-gradient(135deg, #fef3c7, #fbbf24)',
+              color: '#d97706',
+              borderRadius: '3px',
+              padding: '2px 6px',
+              fontSize: '10px',
+              fontWeight: '600',
+              fontFamily: 'monospace',
+              marginLeft: '8px',
+              boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
+              cursor: 'pointer'
+            }}
+            className="fx-icon-badge"
+            data-fx-icon="true"
+            title={`SQL Rule: ${rule.logic_en || rule.sql_where || 'No logic'}`}
+          >
+            fx
+          </span>
+        )
       }
     }
     
     return (
-      <div style={{ 
-        display: 'flex', 
-        alignItems: 'stretch',
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
         height: '100%',
-        width: '100%'
+        paddingLeft: '8px'
       }}>
-        {/* The Indentation "Guide Rails" */}
-        {Array.from({ length: depth }).map((_, i) => (
-          <div
-            key={i}
-            style={{
-              flexShrink: 0,
-              width: '32px',
-              height: '100%',
-              borderRight: '1px solid #e5e7eb',
-              backgroundColor: 'rgba(249, 250, 251, 0.5)' // gray-50/50
-            }}
-          />
-        ))}
-        
-        {/* The Expand Toggle / Leaf Connector */}
-        <div
-          style={{
-            flexShrink: 0,
-            width: '32px',
-            height: '100%',
-            borderRight: '1px solid #e5e7eb',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            backgroundColor: 'rgba(249, 250, 251, 0.5)', // gray-50/50
-            cursor: hasChildren ? 'pointer' : 'default'
-          }}
-          onClick={toggleExpand}
-        >
-          {hasChildren ? (
-            isExpanded ? (
-              <span style={{ fontSize: '14px', color: '#6b7280' }}>▼</span>
-            ) : (
-              <span style={{ fontSize: '14px', color: '#6b7280' }}>▶</span>
-            )
-          ) : (
-            <div style={{
-              width: '6px',
-              height: '6px',
-              borderRadius: '50%',
-              backgroundColor: '#d1d5db'
-            }} />
-          )}
-        </div>
-        
-        {/* The Node Cell with Icon and Name */}
-        <div style={{
-          flex: 1,
-          display: 'flex',
-          alignItems: 'center',
-          paddingLeft: '8px',
+        {getNodeIcon() && <span style={{ marginRight: '6px', fontSize: '14px' }}>{getNodeIcon()}</span>}
+        <span style={{
           fontSize: '0.875rem',
           fontWeight: 500,
           color: '#374151'
         }}>
-          {getNodeIcon() && <span style={{ marginRight: '6px', fontSize: '14px' }}>{getNodeIcon()}</span>}
-          <span>{nodeName}</span>
-        </div>
+          {nodeName}
+        </span>
+        {renderRuleBadge()}
       </div>
     )
-  }
-
-  // Phase 5.7: Helper function to determine if a rule is a Math Rule
-  const isMathRule = (rule: any): boolean => {
-    if (!rule) return false
-    // Primary check: rule_type field
-    if (rule.rule_type === 'NODE_ARITHMETIC') return true
-    // Fallback: If rule has rule_expression but no logic_en or sql_where, it's likely a math rule
-    if (rule.rule_expression && !rule.logic_en && !rule.sql_where) return true
-    return false
   }
 
   // Status Pill Renderer for Business Rule column (with Rich Tooltip)
@@ -1625,8 +1823,39 @@ const RuleEditor: React.FC = () => {
     }
   }
 
-  // AG-Grid Column Definitions (Unified with Tab 2)
+  // AG-Grid Column Definitions (Manual Tree Engine - Matches Tab 2)
   const columnDefs: ColDef[] = [
+    {
+      field: 'node_name',
+      headerName: 'Hierarchy',
+      minWidth: 350,
+      pinned: 'left',
+      checkboxSelection: true,
+      headerCheckboxSelection: true,
+      cellRenderer: nodeNameCellRenderer,
+      cellStyle: (params: any) => {
+        const depth = params.data?.depth || 0
+        return {
+          backgroundColor: depth === 0 ? '#f0f4f8' : depth === 1 ? '#f9f9f9' : '#ffffff',
+          borderLeft: depth > 1 ? '1px solid #e0e0e0' : 'none',
+        }
+      },
+      onCellClicked: (params) => {
+        const target = params.event?.target as HTMLElement
+        if (target?.closest('.fx-icon-badge') || target?.dataset?.fxIcon === 'true') {
+          // Open inheritance overlay
+          const rect = target.getBoundingClientRect()
+          if (rect && params.data) {
+            loadRuleStack(params.data.node_id)
+            setInheritanceOverlay({
+              nodeId: params.data.node_id,
+              x: rect.right + 10,
+              y: rect.top
+            })
+          }
+        }
+      },
+    },
     {
       field: 'business_rule',
       headerName: 'Business Rule',
@@ -1662,44 +1891,6 @@ const RuleEditor: React.FC = () => {
     },
   ]
 
-  // Auto Group Column Definition (Structural Column Design - matches ExecutiveDashboard)
-  const autoGroupColumnDef: ColDef = {
-    headerName: 'Hierarchy',
-    field: 'node_name',
-    minWidth: 350,
-    pinned: 'left',
-    checkboxSelection: true,
-    headerCheckboxSelection: true,
-    cellRenderer: StructuralHierarchyCellRenderer,
-    cellStyle: {
-      padding: 0,
-      height: '40px'
-    },
-    cellStyle: (params: any) => {
-      // EXACT MATCH to DiscoveryScreen.tsx cellStyle
-      const depth = params.data?.depth || 0
-      return {
-        backgroundColor: depth === 0 ? '#f0f4f8' : depth === 1 ? '#f9f9f9' : '#ffffff',
-        borderLeft: depth > 1 ? '1px solid #e0e0e0' : 'none',
-      }
-    },
-    onCellClicked: (params) => {
-      const target = params.event?.target as HTMLElement
-      if (target?.closest('.fx-icon-badge') || target?.dataset?.fxIcon === 'true') {
-        // Open inheritance overlay
-        const rect = target.getBoundingClientRect()
-        if (rect && params.data) {
-          loadRuleStack(params.data.node_id)
-          setInheritanceOverlay({
-            nodeId: params.data.node_id,
-            x: rect.right + 10,
-            y: rect.top
-          })
-        }
-      }
-    },
-  }
-
   const defaultColDef: ColDef = {
     sortable: true,
     filter: true,
@@ -1707,9 +1898,10 @@ const RuleEditor: React.FC = () => {
   }
 
   // Structural Column row styling with zebra striping and conflict detection
+  // Clean Look: Removed inline height and border styles (handled by CSS)
   const getRowStyle = (params: any) => {
     const baseStyle: any = {
-      height: '40px', // h-10
+      // Height removed - let CSS handle 32px via rowHeight prop
       padding: 0
     }
     
@@ -1729,7 +1921,7 @@ const RuleEditor: React.FC = () => {
     const depth = params.data?.depth || 0
     if (depth === 0) {
       baseStyle.fontWeight = '700'
-      baseStyle.borderBottom = '2px solid #ddd'
+      // borderBottom removed - CSS handles transparent borders for clean look
     }
     
     // Status glow for nodes with rules (only if no conflict)
@@ -1754,58 +1946,12 @@ const RuleEditor: React.FC = () => {
   const onGridReady = (params: { api: GridApi; columnApi: ColumnApi }) => {
     setGridApi(params.api)
     
-    // Set default expansion for nodes with depth < 4
+    // Manual Tree Engine: Trigger external filter after grid is ready
     setTimeout(() => {
-      if (params.api && !params.api.isDestroyed && typeof params.api.forEachNode === 'function') {
-        try {
-          params.api.forEachNode((node: any) => {
-            if (node && node.data && (node.data.depth || 0) < 4) {
-              if (typeof node.setExpanded === 'function') {
-                node.setExpanded(true)
-              } else if (typeof node.expanded !== 'undefined') {
-                node.expanded = true
-              }
-            }
-          })
-        } catch (error) {
-          console.warn('[RULE EDITOR] Grid expansion error (non-critical):', error)
-        }
+      if (params.api) {
+        params.api.onFilterChanged()
       }
     }, 100)
-    
-    // Tree Unification: Track expansion changes and sync to shared state
-    params.api.addEventListener('rowGroupOpened', (event: any) => {
-      if (event.node && event.node.data) {
-        const nodeId = event.node.data.node_id
-        setExpandedNodes(prev => {
-          const next = new Set(prev)
-          next.add(nodeId)
-          return next
-        })
-      }
-    })
-    
-    params.api.addEventListener('rowGroupClosed', (event: any) => {
-      if (event.node && event.node.data) {
-        const nodeId = event.node.data.node_id
-        setExpandedNodes(prev => {
-          const next = new Set(prev)
-          next.delete(nodeId)
-          return next
-        })
-      }
-    })
-    
-    // Apply saved expansion state after grid is ready (Tab 2 & 3 unification)
-    setTimeout(() => {
-      if (expandedNodes.size > 0 && params.api) {
-        params.api.forEachNode((node: any) => {
-          if (node.data && expandedNodes.has(node.data.node_id)) {
-            node.setExpanded(true)
-          }
-        })
-      }
-    }, 200)
   }
 
   // Load Rule Stack for selected node
@@ -2806,47 +2952,22 @@ const RuleEditor: React.FC = () => {
         </div>
       </div>
 
-      {/* Unified AG-Grid Tree (like Tab 2) */}
+      {/* Unified AG-Grid Tree (Clean Look - Matches Tab 2) */}
       <div className="grid-hero-container" style={{ width: '100%' }}>
-        <div className="ag-theme-alpine grid-hero" style={{ 
-          height: 'calc(100vh - 300px)', 
-          width: '100%'
+        <div className="ag-theme-alpine grid-hero rule-editor-grid" style={{ 
+          height: '600px', // Fixed height like Tab 2 (cleaner than calc)
+          width: '100%',
+          overflow: 'hidden' // Prevent whitespace gaps when scrolling
         }}>
           <AgGridReact
             ref={gridRef}
             rowData={searchQuery ? filteredRowData : rowData}
             columnDefs={columnDefs}
-            autoGroupColumnDef={autoGroupColumnDef}
             defaultColDef={defaultColDef}
             onGridReady={onGridReady}
             onSelectionChanged={onSelectionChanged}
-            onRowGroupOpened={(params) => {
-              // Tree Unification: Sync expansion to shared state (matches DiscoveryScreen)
-              if (params.node && params.node.data) {
-                const nodeId = params.node.data.node_id
-                setExpandedNodes(prev => {
-                  const next = new Set(prev)
-                  next.add(nodeId)
-                  return next
-                })
-              }
-            }}
-            onRowGroupClosed={(params) => {
-              // Tree Unification: Sync expansion to shared state (matches DiscoveryScreen)
-              if (params.node && params.node.data) {
-                const nodeId = params.node.data.node_id
-                setExpandedNodes(prev => {
-                  const next = new Set(prev)
-                  next.delete(nodeId)
-                  return next
-                })
-              }
-            }}
             rowSelection="multiple"
-            treeData={true}
-            getDataPath={(data) => data.path || []}
             getRowId={(params) => params.data.node_id || params.data.id || params.data.node_name || `row-${params.rowIndex}`}
-            groupDefaultExpanded={-1}  // Fully expanded on load (Power BI-like)
             animateRows={true}
             loading={loading}
             getRowStyle={getRowStyle}
@@ -2855,6 +2976,12 @@ const RuleEditor: React.FC = () => {
             enableRangeSelection={false}
             suppressHorizontalScroll={false}
             suppressVerticalScroll={false}
+            // Manual Tree Engine: External filter for parent-child visibility
+            isExternalFilterPresent={isExternalFilterPresent}
+            doesExternalFilterPass={doesExternalFilterPass}
+            // Clean Look: Compact row and header heights (matches Tab 2)
+            rowHeight={32}
+            headerHeight={32}
           />
         </div>
       </div>

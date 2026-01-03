@@ -315,3 +315,4 @@ def resolve_rules_for_use_case(
     resolver = RuleResolver(session, use_case_id)
     return resolver.resolve_rules(hierarchy_nodes)
 
+

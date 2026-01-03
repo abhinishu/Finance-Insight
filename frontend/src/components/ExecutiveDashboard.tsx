@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { AgGridReact } from 'ag-grid-react'
 import { ColDef, GridApi, ColumnApi, ICellRendererParams } from 'ag-grid-community'
-import 'ag-grid-enterprise' // Required for treeData feature
 import axios from 'axios'
 import { useReportingContext } from '../contexts/ReportingContext'
 import { calculateRuleAttribution } from '../utils/pnlAttribution'
@@ -213,6 +212,9 @@ const ExecutiveDashboard: React.FC = () => {
   const [gridApi, setGridApi] = useState<GridApi | null>(null)
   const [loading, setLoading] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
+  
+  // Manual Tree Engine: Track expanded nodes (matches Tab 2 & 3)
+  const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set())
 
   // Side Drawer
   const [drawerOpen, setDrawerOpen] = useState<boolean>(false)
@@ -406,26 +408,15 @@ const ExecutiveDashboard: React.FC = () => {
       })
       setRowData(flatData)
       
-      // Set default expansion for nodes with depth < 4
-      if (gridApi && flatData.length > 0) {
-        setTimeout(() => {
-          if (gridApi && !gridApi.isDestroyed && typeof gridApi.forEachNode === 'function') {
-            try {
-              gridApi.forEachNode((node: any) => {
-                if (node && node.data && (node.data.depth || 0) < 4) {
-                  if (typeof node.setExpanded === 'function') {
-                    node.setExpanded(true)
-                  } else if (typeof node.expanded !== 'undefined') {
-                    node.expanded = true
-                  }
-                }
-              })
-            } catch (error) {
-              console.warn('[EXECUTIVE DASHBOARD] Grid expansion error (non-critical):', error)
-            }
-          }
-        }, 100)
-      }
+      // Initialize expandedNodes: expand root nodes (depth 0) by default
+      const defaultExpanded = new Set<string>()
+      flatData.forEach(row => {
+        const hasChildren = row.children && Array.isArray(row.children) && row.children.length > 0
+        if (row.depth === 0 && hasChildren) {
+          defaultExpanded.add(row.node_id)
+        }
+      })
+      setExpandedNodes(defaultExpanded)
       
       // Set default scopeNode to Root Node on initial load
       if (flatData.length > 0 && !scopeNode) {
@@ -516,6 +507,16 @@ const ExecutiveDashboard: React.FC = () => {
       setTargetData(targetFlat)
       setRowData(mergedData)
       
+      // Initialize expandedNodes: expand root nodes (depth 0) by default
+      const defaultExpanded = new Set<string>()
+      mergedData.forEach(row => {
+        const hasChildren = row.children && Array.isArray(row.children) && row.children.length > 0
+        if (row.depth === 0 && hasChildren) {
+          defaultExpanded.add(row.node_id)
+        }
+      })
+      setExpandedNodes(defaultExpanded)
+      
     } catch (err: any) {
       console.error('Failed to load comparison results:', err)
       setError(err.response?.data?.detail || 'Failed to load comparison results.')
@@ -598,6 +599,123 @@ const ExecutiveDashboard: React.FC = () => {
     
     return result
   }
+
+  // Toggle node expansion (Manual Tree Engine)
+  const toggleNodeExpansion = useCallback((nodeId: string) => {
+    setExpandedNodes(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(nodeId)) {
+        newSet.delete(nodeId)
+      } else {
+        newSet.add(nodeId)
+      }
+      return newSet
+    })
+    // Trigger filter update
+    setTimeout(() => {
+      if (gridApi) {
+        gridApi.onFilterChanged()
+      }
+    }, 0)
+  }, [gridApi])
+
+  // Manual Tree Cell Renderer (matches Tab 2 & 3 visual density)
+  const nodeNameCellRenderer = useCallback((params: any) => {
+    const data = params.data
+    if (!data) return ''
+    
+    const depth = data.depth || 0
+    // Check if node is a leaf: no children or empty children array
+    const hasChildren = data.children && Array.isArray(data.children) && data.children.length > 0
+    const isLeaf = !hasChildren
+    const isExpanded = expandedNodes.has(data.node_id)
+    const paddingLeft = depth * 20 + 8 // 20px per level + 8px base (matches Tab 2 & 3)
+    
+    const nodeName = data.node_name || params.value || ''
+    
+    // Determine node type for icon (from StructuralHierarchyCellRenderer)
+    const getNodeIcon = () => {
+      if (depth === 0) {
+        return '🌐' // Globe for Root
+      } else if (data.region || nodeName.includes('Americas') || nodeName.includes('EMEA') || nodeName.includes('APAC')) {
+        return '📍' // MapPin for Region
+      } else if (data.book || nodeName.includes('Book')) {
+        return '💼' // Briefcase for Book
+      } else if (data.cost_center || nodeName.includes('Cost Center') || nodeName.includes('Trade')) {
+        return '#' // Hash for Cost Center
+      }
+      return ''
+    }
+    
+    const nodeIcon = getNodeIcon()
+    
+    // Chevron for non-leaf nodes
+    const chevron = !isLeaf ? (
+      <span 
+        onClick={(e) => {
+          e.stopPropagation()
+          toggleNodeExpansion(data.node_id)
+        }}
+        style={{ 
+          cursor: 'pointer', 
+          marginRight: '4px',
+          userSelect: 'none',
+          fontSize: '12px',
+          color: '#3498db'
+        }}
+      >
+        {isExpanded ? '▼' : '▶'}
+      </span>
+    ) : (
+      <span style={{ marginRight: '8px', color: '#999' }}>•</span>
+    )
+    
+    return (
+      <div style={{ 
+        paddingLeft: `${paddingLeft}px`,
+        display: 'flex',
+        alignItems: 'center',
+        fontWeight: depth === 0 ? '600' : depth === 1 ? '500' : '400',
+        color: depth === 0 ? '#2c3e50' : '#333'
+      }}>
+        {chevron}
+        {nodeIcon && <span style={{ marginRight: '6px', fontSize: '14px' }}>{nodeIcon}</span>}
+        <span>{nodeName}</span>
+      </div>
+    )
+  }, [expandedNodes, toggleNodeExpansion])
+
+  // External filter: Hide rows whose parents are not expanded
+  const isExternalFilterPresent = useCallback(() => {
+    return true // Always use external filter
+  }, [])
+
+  const doesExternalFilterPass = useCallback((node: any) => {
+    const data = node.data
+    if (!data) return false
+    
+    // Root nodes are always visible
+    if (!data.parent_node_id) return true
+    
+    // Check if all ancestors are expanded
+    const checkAncestors = (currentData: any): boolean => {
+      if (!currentData.parent_node_id) return true // Reached root
+      
+      // Find parent in rowData
+      const parent = rowData.find(r => r.node_id === currentData.parent_node_id)
+      if (!parent) return true // Parent not found, show it
+      
+      // If parent is not expanded, hide this node
+      if (!expandedNodes.has(parent.node_id)) {
+        return false
+      }
+      
+      // Recursively check parent's ancestors
+      return checkAncestors(parent)
+    }
+    
+    return checkAncestors(data)
+  }, [expandedNodes, rowData])
 
   // --- RESTORED LOGIC START ---
   // DEFENSIVE DATA PROCESSING: Process rowData into safe, flat format
@@ -805,8 +923,23 @@ const ExecutiveDashboard: React.FC = () => {
 
   // AG-Grid Column Definitions (dynamic based on view mode and comparison mode)
   const getColumnDefs = (): ColDef[] => {
-    // Note: node_name column is handled by autoGroupColumnDef for tree data
-    const baseColumns: ColDef[] = []
+    // Manual Tree Engine: node_name column with manual tree renderer
+    const baseColumns: ColDef[] = [
+      {
+        field: 'node_name',
+        headerName: 'Dimension Node',
+        flex: 2,
+        pinned: 'left',
+        cellRenderer: nodeNameCellRenderer,
+        cellStyle: (params: any) => {
+          const depth = params.data?.depth || 0
+          return {
+            backgroundColor: depth === 0 ? '#f0f4f8' : depth === 1 ? '#f9f9f9' : '#ffffff',
+            borderLeft: depth > 1 ? '1px solid #e0e0e0' : 'none',
+          }
+        },
+      }
+    ]
 
     // Step 4.3: Comparison Mode Columns
     if (isComparisonMode) {
@@ -1164,22 +1297,11 @@ const ExecutiveDashboard: React.FC = () => {
 
   const onGridReady = (params: { api: GridApi; columnApi: ColumnApi }) => {
     setGridApi(params.api)
-    // Set default expansion for nodes with depth < 4
+    
+    // Manual Tree Engine: Trigger external filter after grid is ready
     setTimeout(() => {
-      if (params.api && !params.api.isDestroyed && typeof params.api.forEachNode === 'function') {
-        try {
-          params.api.forEachNode((node: any) => {
-            if (node && node.data && (node.data.depth || 0) < 4) {
-              if (typeof node.setExpanded === 'function') {
-                node.setExpanded(true)
-              } else if (typeof node.expanded !== 'undefined') {
-                node.expanded = true
-              }
-            }
-          })
-        } catch (error) {
-          console.warn('[EXECUTIVE DASHBOARD] Grid expansion error (non-critical):', error)
-        }
+      if (params.api) {
+        params.api.onFilterChanged()
       }
     }, 100)
   }
@@ -1193,7 +1315,8 @@ const ExecutiveDashboard: React.FC = () => {
   }
 
   // Row style for conditional formatting (amber highlight for plugs, blue for selected scope)
-  // Structural Column Cell Renderer with Guide Rails and Expand Toggle
+  // DEPRECATED: StructuralHierarchyCellRenderer - Replaced by nodeNameCellRenderer (Manual Tree Engine)
+  // Kept for reference but no longer used
   const StructuralHierarchyCellRenderer: React.FC<ICellRendererParams> = (params) => {
     const depth = params.data?.depth || 0
     const nodeName = params.value || params.data?.node_name || ''
@@ -1576,26 +1699,19 @@ const ExecutiveDashboard: React.FC = () => {
             defaultColDef={defaultColDef}
             onGridReady={onGridReady}
             onRowClicked={onRowClicked}
-            treeData={true}
-            getDataPath={(data) => data.path || []}
             getRowId={(params) => params.data.node_id || params.data.id || params.data.node_name || `row-${params.rowIndex}`}
-            groupDefaultExpanded={-1}
             animateRows={true}
             loading={loading}
             getRowStyle={getRowStyle}
             rowSelection="single"
             suppressRowGroupHidesColumns={true}
             suppressRowClickSelection={false}
-            autoGroupColumnDef={{
-              field: 'node_name',
-              headerName: 'Dimension Node',
-              flex: 2,
-              cellRenderer: StructuralHierarchyCellRenderer,
-              cellStyle: {
-                padding: 0,
-                height: '40px'
-              }
-            }}
+            // Manual Tree Engine: External filter for parent-child visibility
+            isExternalFilterPresent={isExternalFilterPresent}
+            doesExternalFilterPass={doesExternalFilterPass}
+            // Clean Look: Compact row and header heights (matches Tab 2 & 3)
+            rowHeight={32}
+            headerHeight={32}
           />
         </div>
       </div>

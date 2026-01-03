@@ -351,6 +351,9 @@ def calculate_use_case(
             
             target_node = rule.node_id
             
+            # Capture original value for Flight Recorder logging
+            original_val = adjusted_results.get(target_node, {}).get('daily', Decimal('0'))
+            
             # Evaluate the arithmetic expression
             try:
                 # Get measure name (default to 'daily')
@@ -364,10 +367,88 @@ def calculate_use_case(
                 elif 'pytd' in measure_name.lower():
                     measure_key = 'pytd'
                 
-                # Evaluate expression using current hierarchy_values
+                # CRITICAL FIX: Build complete calculation_context map with ALL hierarchy nodes
+                # Ensure every node in the hierarchy has an entry in the context
+                # Use STRING node_id keys to match expression references exactly
+                # This prevents "name 'CC_AMER_CASH_NY_001' is not defined" errors
+                calculation_context = {}
+                
+                # Step 1: Normalize all result dictionaries to use string keys
+                # This ensures consistent key matching regardless of original key type
+                adjusted_results_str_keys = {}
+                for key, value in adjusted_results.items():
+                    key_str = str(key)
+                    adjusted_results_str_keys[key_str] = value
+                
+                natural_results_str_keys = {}
+                for key, value in natural_results.items():
+                    key_str = str(key)
+                    natural_results_str_keys[key_str] = value
+                
+                # Step 2: Build context from hierarchy_dict (primary source of truth for node IDs)
+                # Use the actual node_id from hierarchy as the key (ensure it's a string)
+                for node_id, node in hierarchy_dict.items():
+                    # Get the actual node_id string (this is what formulas reference)
+                    node_id_str = str(node_id)
+                    
+                    # Priority 1: Use adjusted value if available
+                    if node_id_str in adjusted_results_str_keys:
+                        calculation_context[node_id_str] = adjusted_results_str_keys[node_id_str]
+                    # Priority 2: Fall back to natural value
+                    elif node_id_str in natural_results_str_keys:
+                        calculation_context[node_id_str] = natural_results_str_keys[node_id_str]
+                    # Priority 3: Ensure all nodes have at least zero values
+                    else:
+                        calculation_context[node_id_str] = {
+                            'daily': Decimal('0'),
+                            'mtd': Decimal('0'),
+                            'ytd': Decimal('0'),
+                            'pytd': Decimal('0'),
+                        }
+                
+                # Step 3: Include any additional keys from adjusted_results that might not be in hierarchy
+                # (e.g., intermediate calculated values from previous math rules)
+                for node_id_str, values in adjusted_results_str_keys.items():
+                    if node_id_str not in calculation_context:
+                        calculation_context[node_id_str] = values
+                
+                # Step 4: Include keys from natural_results that might be missing
+                for node_id_str, values in natural_results_str_keys.items():
+                    if node_id_str not in calculation_context:
+                        calculation_context[node_id_str] = values
+                
+                # Step 5: Extract node references from expression for validation
+                import re
+                expression_upper = rule.rule_expression.upper() if rule.rule_expression else ''
+                # Extract all identifiers that could be node references
+                potential_refs = re.findall(r'\b[A-Z_][A-Z0-9_]*\b', expression_upper)
+                # Filter out numeric constants
+                node_refs_in_expression = [
+                    ref for ref in potential_refs 
+                    if not re.match(r'^\d+\.?\d*$', ref)
+                    and ref not in ['AND', 'OR', 'NOT', 'TRUE', 'FALSE', 'IF', 'THEN', 'ELSE']
+                ]
+                
+                # Step 6: Debug logging - Show context keys, expression, and validation
+                missing_refs = [ref for ref in node_refs_in_expression if ref not in [k.upper() for k in calculation_context.keys()]]
+                logger.info(
+                    f"🔎 MATH ENGINE CONTEXT: Expression='{rule.rule_expression}' | "
+                    f"Node Refs in Expression: {node_refs_in_expression} | "
+                    f"Context Keys Sample: {list(calculation_context.keys())[:10]} | "
+                    f"Total Context Nodes: {len(calculation_context)} | "
+                    f"Missing Refs: {missing_refs if missing_refs else 'None'}"
+                )
+                
+                if missing_refs:
+                    logger.warning(
+                        f"⚠️ MATH ENGINE: Expression references nodes not in context: {missing_refs}. "
+                        f"These will default to 0."
+                    )
+                
+                # Step 7: Evaluate expression using calculation_context
                 calculated_values = evaluate_type3_expression(
                     rule.rule_expression,
-                    adjusted_results,
+                    calculation_context,
                     measure=measure_key
                 )
                 
@@ -380,9 +461,16 @@ def calculate_use_case(
                     'pytd': Decimal(str(calculated_values.get('pytd', Decimal('0')))),
                 }
                 
+                new_val = adjusted_results[target_node]['daily']
+                
                 rules_applied += 1
-                logger.info(f"Applied Type 3 rule {rule.rule_id} to node {target_node}: "
-                          f"{rule.rule_expression} = {calculated_values.get('daily', 0)}")
+                
+                # Flight Recorder Logging (High-Visibility)
+                logger.info(
+                    f"🧮 MATH ENGINE: Node {target_node} | "
+                    f"SQL Value: {original_val} | Rule: {rule.rule_expression} | "
+                    f"➡️ New Value: {new_val}"
+                )
                 
             except Exception as e:
                 logger.error(f"Error executing Type 3 rule {rule.rule_id} for node {target_node}: {e}")
@@ -437,7 +525,7 @@ def calculate_use_case(
         run.calculation_duration_ms = duration_ms
         run.parameters_snapshot = {
             'rules_applied': rules_applied,
-            'rule_ids': [rule.rule_id for rule in active_rules.values()],
+            'rule_ids': [rule.rule_id for rule in all_active_rules.values()],
             'num_nodes': len(hierarchy_dict),
             'num_results': num_results
         }

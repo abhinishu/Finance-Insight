@@ -234,53 +234,113 @@ def evaluate_type3_expression(
             'pytd': Decimal('0'),
         }
     
-    # Replace NODE_X references with actual values for each measure
+    # Extract node references from expression
+    # Support both NODE_* patterns (e.g., "NODE_3") and actual node IDs (e.g., "CC_AMER_CASH_NY_001")
     import re
-    node_pattern = r'NODE_[\w]+'
     
-    # Find all node references
-    node_refs = re.findall(node_pattern, expression.upper())
+    # Strategy: Extract all identifiers from expression, then match against known node_ids
+    # This is more robust than regex patterns alone
+    
+    # Get all node_ids from node_values (these are the valid node references)
+    valid_node_ids = set(str(node_id).upper() for node_id in node_values.keys())
+    
+    # Extract all identifiers from expression (alphanumeric + underscores)
+    # Pattern matches: CC_AMER_CASH_NY_001, NODE_3, ABC_123, etc.
+    all_identifiers = re.findall(r'\b[A-Z_][A-Z0-9_]*\b', expression.upper())
+    
+    # Filter to only identifiers that match known node_ids
+    node_refs = []
+    for identifier in all_identifiers:
+        # Skip numeric constants (pure numbers)
+        if re.match(r'^\d+\.?\d*$', identifier):
+            continue
+        
+        # Skip known operators and keywords
+        operators_keywords = {'AND', 'OR', 'NOT', 'TRUE', 'FALSE', 'IF', 'THEN', 'ELSE'}
+        if identifier in operators_keywords:
+            continue
+        
+        # Check if identifier matches any node_id (case-insensitive)
+        if identifier in valid_node_ids:
+            node_refs.append(identifier)
+        else:
+            # Try case-insensitive match
+            for node_id in node_values.keys():
+                if str(node_id).upper() == identifier:
+                    node_refs.append(identifier)  # Use the identifier as found in expression
+                    break
+    
+    # Remove duplicates while preserving order
+    node_refs = list(dict.fromkeys(node_refs))
+    
+    # Debug logging
+    if node_refs:
+        logger.debug(f"Extracted node references from expression '{expression}': {node_refs}")
+    else:
+        logger.warning(f"No node references found in expression '{expression}'. Available node_ids: {list(valid_node_ids)[:10]}")
     
     # Build replacement map for each measure
     replacements = {}
     for measure_name in ['daily', 'mtd', 'ytd', 'pytd']:
         measure_replacements = {}
         for node_ref in node_refs:
-            # Try exact match first
+            # Find the actual node_id key (case-insensitive match)
+            actual_node_id = None
+            node_ref_upper = node_ref.upper()
+            
+            # Try exact match first (case-sensitive)
             if node_ref in node_values:
-                value = node_values[node_ref].get(measure_name, Decimal('0'))
+                actual_node_id = node_ref
             else:
                 # Try case-insensitive match
-                matched = False
                 for node_id in node_values.keys():
-                    if node_id.upper() == node_ref.upper():
-                        value = node_values[node_id].get(measure_name, Decimal('0'))
-                        matched = True
+                    if str(node_id).upper() == node_ref_upper:
+                        actual_node_id = str(node_id)
                         break
-                if not matched:
-                    value = Decimal('0')
             
-            # Replace NODE_X with the Decimal value (as string for safe substitution)
+            if actual_node_id and actual_node_id in node_values:
+                value = node_values[actual_node_id].get(measure_name, Decimal('0'))
+            else:
+                logger.warning(
+                    f"Node reference '{node_ref}' not found in node_values. "
+                    f"Available keys (sample): {list(node_values.keys())[:10]}"
+                )
+                value = Decimal('0')
+            
+            # Replace node_ref with the Decimal value (as string for safe substitution)
+            # Store multiple case variations to handle different cases in expression
             measure_replacements[node_ref] = str(value)
-            # Also handle case variations
+            measure_replacements[node_ref.upper()] = str(value)
             measure_replacements[node_ref.lower()] = str(value)
+            # Also store the actual node_id key if different
+            if actual_node_id and actual_node_id != node_ref:
+                measure_replacements[actual_node_id] = str(value)
+                measure_replacements[actual_node_id.upper()] = str(value)
+                measure_replacements[actual_node_id.lower()] = str(value)
         
         replacements[measure_name] = measure_replacements
     
     # Evaluate expression for each measure
     results = {}
     for measure_name in ['daily', 'mtd', 'ytd', 'pytd']:
-        expr = expression.upper()
+        # Start with original expression (preserve case for better matching)
+        expr = expression
         
         # Replace node references with values (use word boundaries to avoid partial matches)
         # Sort by length (longest first) to avoid replacing parts of longer node names
         sorted_refs = sorted(replacements[measure_name].keys(), key=len, reverse=True)
         for node_ref in sorted_refs:
             value_str = replacements[measure_name][node_ref]
-            # Use word boundary pattern to ensure exact match
+            # Use word boundary pattern to ensure exact match (case-insensitive)
             import re
-            pattern = r'\b' + re.escape(node_ref) + r'\b'
-            expr = re.sub(pattern, value_str, expr)
+            # Escape special regex characters in node_ref
+            escaped_ref = re.escape(node_ref)
+            # Use case-insensitive pattern with word boundaries
+            pattern = r'\b' + escaped_ref + r'\b'
+            expr = re.sub(pattern, value_str, expr, flags=re.IGNORECASE)
+        
+        # Convert to uppercase for final evaluation (to handle any remaining case variations)
+        expr = expr.upper()
         
         # Safe evaluation using Decimal arithmetic
         try:
