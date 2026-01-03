@@ -382,7 +382,8 @@ def validate_json_predicate(
 def translate_rule(
     logic_en: str,
     use_cache: bool = True,
-    comparison_context: Optional[Dict[str, str]] = None
+    comparison_context: Optional[Dict[str, str]] = None,
+    table_name: str = 'fact_pnl_gold'
 ) -> Tuple[Optional[Dict[str, Any]], Optional[str], List[str], bool]:
     """
     Main translation function: Natural Language → JSON → Validate → SQL.
@@ -395,6 +396,8 @@ def translate_rule(
     Args:
         logic_en: Natural language description
         use_cache: Whether to use cached translations (default: True)
+        comparison_context: Optional context for comparison rules
+        table_name: Target table name for column mapping (default: 'fact_pnl_gold')
     
     Returns:
         Tuple of (predicate_json, sql_where, errors, translation_successful)
@@ -438,7 +441,7 @@ def translate_rule(
     # Stage 3: JSON Predicate → SQL WHERE (using existing RuleService)
     try:
         from app.services.rules import convert_json_to_sql
-        sql_where = convert_json_to_sql(predicate_json)
+        sql_where = convert_json_to_sql(predicate_json, table_name)
     except Exception as e:
         errors.append(f"Failed to convert JSON to SQL: {str(e)}")
         return predicate_json, None, errors, False

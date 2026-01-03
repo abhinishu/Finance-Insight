@@ -500,6 +500,7 @@ def get_measure_column_name(measure_name: Optional[str], table_name: str) -> str
     
     Args:
         measure_name: Measure name from rule (e.g., 'daily_pnl', 'daily_commission', 'daily_trade')
+                     OR actual column name (e.g., 'pnl_commission', 'pnl_trade')
         table_name: Table name to determine column mapping
     
     Returns:
@@ -510,7 +511,14 @@ def get_measure_column_name(measure_name: Optional[str], table_name: str) -> str
     
     # Map measure_name to column names based on table
     if table_name == 'fact_pnl_use_case_3':
-        # Use Case 3 specific mapping
+        # Valid column names in fact_pnl_use_case_3
+        valid_columns = ['pnl_daily', 'pnl_commission', 'pnl_trade']
+        
+        # Phase 5.9: Pass-through check - if measure_name is already a valid column, return it as-is
+        if measure_name in valid_columns:
+            return measure_name
+        
+        # Use Case 3 specific mapping (measure names -> column names)
         mapping = {
             'daily_pnl': 'pnl_daily',
             'daily_commission': 'pnl_commission',
@@ -620,6 +628,15 @@ def apply_rule_override(session: Session, facts_df: pd.DataFrame, rule: Metadata
     # Try to execute SQL WHERE clause on the appropriate table
     try:
         sql_where = rule.sql_where.strip()
+        
+        # Validate and sanitize SQL WHERE clause (prevent SQL injection and syntax errors)
+        dangerous_patterns = [';', '--', '/*', '*/', 'DROP', 'DELETE', 'UPDATE', 'INSERT', 'ALTER', 'CREATE', 'TRUNCATE']
+        sql_where_upper = sql_where.upper()
+        for pattern in dangerous_patterns:
+            if pattern in sql_where_upper:
+                error_msg = f"Rule {rule.rule_id} contains dangerous SQL pattern: {pattern}"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
         
         # Phase 5.4: Use target_column instead of hardcoded daily_pnl
         if table_name == 'fact_pnl_use_case_3':

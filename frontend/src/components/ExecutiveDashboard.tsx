@@ -16,6 +16,16 @@ import './ExecutiveDashboard.css'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
+// Phase 5.9: Measure Labels Map for Multi-Measure Rules (matching Tab 3)
+const MEASURE_LABELS: Record<string, string> = {
+  'daily_pnl': 'Daily P&L',
+  'pnl_commission': 'Commission P&L',
+  'pnl_trade': 'Trading P&L',
+  'daily_commission': 'Commission P&L',
+  'daily_trade': 'Trading P&L',
+  'ytd_pnl': 'YTD P&L'
+}
+
 // ============================================================================
 // HELPER FUNCTIONS: Defensive Data Processing
 // ============================================================================
@@ -107,6 +117,12 @@ interface ResultsNode {
     rule_id: number | null
     logic_en: string | null
     sql_where: string | null
+    // Phase 5.9: Math Rule fields
+    rule_type?: string | null
+    rule_expression?: string | null
+    rule_dependencies?: string[] | null
+    // Phase 5.9: Measure name for display
+    measure_name?: string | null
   } | null
   path?: string[] | null
   children: ResultsNode[]
@@ -133,53 +149,231 @@ interface ResultsResponse {
   hierarchy: ResultsNode[]
 }
 
+// Helper function to format Math rule formulas: Replace node IDs with readable names
+const formatFormula = (expression: string, hierarchyNodes: any[]): string => {
+  if (!expression || !hierarchyNodes || hierarchyNodes.length === 0) {
+    return expression || ''
+  }
+  
+  // Create a map of node_id -> node_name for quick lookup
+  const nodeMap = new Map<string, string>()
+  hierarchyNodes.forEach(node => {
+    if (node.node_id && node.node_name) {
+      // Store both exact match and uppercase version (for case-insensitive matching)
+      nodeMap.set(node.node_id, node.node_name)
+      nodeMap.set(node.node_id.toUpperCase(), node.node_name)
+    }
+  })
+  
+  // Replace node IDs with node names in the expression
+  // Use word boundaries to avoid partial matches (e.g., "NODE_5" shouldn't match "NODE_50")
+  let formatted = expression
+  
+  // Sort node IDs by length (longest first) to avoid partial replacements
+  const sortedNodeIds = Array.from(nodeMap.keys()).sort((a, b) => b.length - a.length)
+  
+  sortedNodeIds.forEach(nodeId => {
+    const nodeName = nodeMap.get(nodeId)
+    if (nodeName) {
+      // Use regex with word boundaries to match whole node IDs only
+      // Escape special regex characters in nodeId
+      const escapedNodeId = nodeId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      const regex = new RegExp(`\\b${escapedNodeId}\\b`, 'gi')
+      formatted = formatted.replace(regex, nodeName)
+    }
+  })
+  
+  return formatted
+}
+
 // Business Rule Cell Renderer (using PortalTooltip for rich tooltips)
 
 // Custom Cell Renderer Component for Business Rule
 const BusinessRuleCellRenderer: React.FC<ICellRendererParams> = (params) => {
-  if (!params.data?.rule?.logic_en) {
+  const rule = params.data?.rule
+  
+  if (!rule) {
     return <span style={{ color: '#999' }}>—</span>
   }
   
-  const logicText = params.data.rule.logic_en || 'Business Rule Applied'
-  const displayText = logicText.length > 60 ? logicText.substring(0, 57) + '...' : logicText
+  // Debug: Log rule object for Commissions node to diagnose Math rule detection
+  if (params.data?.node_name === 'Commissions') {
+    console.log('Tab 4 Debug - Commissions node rule:', JSON.stringify(rule, null, 2))
+    console.log('Tab 4 Debug - rule_type:', rule.rule_type)
+    console.log('Tab 4 Debug - rule_expression:', rule.rule_expression)
+    console.log('Tab 4 Debug - logic_en:', rule.logic_en)
+  }
   
-  // Calculate impact (adjusted - original)
-  const original = parseFloat(params.data?.natural_value?.daily || params.data?.daily_pnl || 0)
-  const adjusted = parseFloat(params.data?.adjusted_value?.daily || params.data?.adjusted_daily || 0)
-  const impact = adjusted - original
+  // Phase 5.9: Handle Math Rules (NODE_ARITHMETIC)
+  // Case A: Math Rule - check rule_type or rule_expression
+  // Check both rule_type and rule_expression (handle cases where one might be missing)
+  const isMathRule = rule.rule_type === 'NODE_ARITHMETIC' || 
+                     (rule.rule_expression && rule.rule_expression.trim() !== '')
   
-  const tooltipContent = (
-    <div>
-      <div style={{ fontWeight: '700', marginBottom: '0.25rem', color: '#fbbf24' }}>
-        {logicText}
-      </div>
-      {params.data.rule.sql_where && (
-        <div style={{ color: '#d1d5db', marginBottom: '0.25rem', fontSize: '0.7rem' }}>
-          Logic: {params.data.rule.sql_where}
+  if (isMathRule) {
+    const rawFormula = rule.rule_expression || 'No formula defined'
+    
+    // Get all row data from grid API for formatting
+    const allRowData: any[] = []
+    if (params.api) {
+      params.api.forEachNode((node: any) => {
+        if (node.data) {
+          allRowData.push(node.data)
+        }
+      })
+    }
+    
+    // Format formula: Replace node IDs with readable names
+    const formattedFormula = formatFormula(rawFormula, allRowData)
+    
+    // Calculate impact (adjusted - original)
+    const original = parseFloat(params.data?.natural_value?.daily || params.data?.daily_pnl || 0)
+    const adjusted = parseFloat(params.data?.adjusted_value?.daily || params.data?.adjusted_daily || 0)
+    const impact = adjusted - original
+    
+    const tooltipContent = (
+      <div>
+        <div style={{ fontWeight: '700', marginBottom: '0.25rem', color: '#1e40af' }}>
+          Math Formula
         </div>
-      )}
-      <div style={{ 
-        color: impact >= 0 ? '#10b981' : '#ef4444', 
-        fontFamily: 'monospace', 
-        fontWeight: '600',
-        fontSize: '0.875rem'
-      }}>
-        Impact: ${impact >= 0 ? '+' : ''}${impact.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+        <div style={{ color: '#d1d5db', marginBottom: '0.25rem', fontSize: '0.8rem', fontFamily: 'monospace' }}>
+          {formattedFormula}
+        </div>
+        {rule.rule_dependencies && rule.rule_dependencies.length > 0 && (
+          <div style={{ color: '#059669', marginBottom: '0.25rem', fontSize: '0.7rem' }}>
+            Dependencies: {rule.rule_dependencies.join(', ')}
+          </div>
+        )}
+        <div style={{ 
+          color: impact >= 0 ? '#10b981' : '#ef4444', 
+          fontFamily: 'monospace', 
+          fontWeight: '600',
+          fontSize: '0.875rem'
+        }}>
+          Impact: ${impact >= 0 ? '+' : ''}${impact.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+        </div>
       </div>
-    </div>
-  )
+    )
+    
+    const displayText = formattedFormula.length > 60 ? formattedFormula.substring(0, 57) + '...' : formattedFormula
+    
+    return (
+      <SmartTooltip content={tooltipContent}>
+        <span 
+          className="rule-badge" 
+          style={{ 
+            cursor: 'help',
+            background: '#dbeafe',
+            color: '#1e40af',
+            padding: '0.125rem 0.5rem',
+            borderRadius: '3px',
+            fontSize: '0.75rem',
+            fontWeight: '600'
+          }}
+        >
+          {displayText}
+        </span>
+      </SmartTooltip>
+    )
+  }
   
-  return (
-    <SmartTooltip content={tooltipContent}>
-      <span 
-        className="rule-badge" 
-        style={{ cursor: 'help' }}
-      >
-        {displayText}
-      </span>
-    </SmartTooltip>
-  )
+  // Case B: Filter Rule (Existing logic)
+  if (rule.logic_en) {
+    // Phase 5.9: Debug logging for measure_name
+    if (params.data?.node_name === 'Commissions (Non Swap)') {
+      console.log('Tab 4 Debug - Rule object:', JSON.stringify(rule, null, 2))
+      console.log('Tab 4 Debug - measure_name:', rule.measure_name)
+      console.log('Tab 4 Debug - MEASURE_LABELS keys:', Object.keys(MEASURE_LABELS))
+    }
+    
+    // Phase 5.9: Get measure label for filter rules (Multi-Measure support)
+    const measureLabel = rule.measure_name && MEASURE_LABELS[rule.measure_name] 
+      ? MEASURE_LABELS[rule.measure_name] 
+      : null
+    
+    // Debug: Log if measureLabel is null but measure_name exists
+    if (rule.measure_name && !measureLabel) {
+      console.warn(`Tab 4 - measure_name "${rule.measure_name}" not found in MEASURE_LABELS`)
+    }
+    
+    const baseLogicText = rule.logic_en || 'Business Rule Applied'
+    
+    // Calculate impact (adjusted - original)
+    const original = parseFloat(params.data?.natural_value?.daily || params.data?.daily_pnl || 0)
+    const adjusted = parseFloat(params.data?.adjusted_value?.daily || params.data?.adjusted_daily || 0)
+    const impact = adjusted - original
+    
+    const tooltipContent = (
+      <div>
+        {/* Phase 5.9: Display measure name in tooltip */}
+        {measureLabel && (
+          <div style={{ 
+            fontWeight: '600', 
+            marginBottom: '0.25rem', 
+            color: '#059669',
+            fontSize: '0.75rem',
+            textTransform: 'uppercase',
+            letterSpacing: '0.5px'
+          }}>
+            Target: {measureLabel}
+          </div>
+        )}
+        <div style={{ fontWeight: '700', marginBottom: '0.25rem', color: '#fbbf24' }}>
+          {baseLogicText}
+        </div>
+        {rule.sql_where && (
+          <div style={{ color: '#d1d5db', marginBottom: '0.25rem', fontSize: '0.7rem' }}>
+            Logic: {rule.sql_where}
+          </div>
+        )}
+        <div style={{ 
+          color: impact >= 0 ? '#10b981' : '#ef4444', 
+          fontFamily: 'monospace', 
+          fontWeight: '600',
+          fontSize: '0.875rem'
+        }}>
+          Impact: ${impact >= 0 ? '+' : ''}${impact.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+        </div>
+      </div>
+    )
+    
+    // Phase 5.9: Format display text with measure context (matching Tab 3)
+    let displayText: React.ReactNode = baseLogicText
+    
+    // If measure is specified and not default, format as "Sum(Measure): Logic"
+    if (measureLabel && rule.measure_name !== 'daily_pnl') {
+      displayText = (
+        <>
+          <strong style={{ color: '#374151', fontWeight: '600' }}>
+            Sum({measureLabel}):
+          </strong>{' '}
+          <span style={{ color: '#6b7280' }}>{baseLogicText}</span>
+        </>
+      )
+    } else {
+      // Default: just show the logic text
+      displayText = <span style={{ color: '#6b7280' }}>{baseLogicText}</span>
+    }
+    
+    // Truncate if too long (for string display only)
+    const finalDisplayText = typeof displayText === 'string' && displayText.length > 60 
+      ? displayText.substring(0, 57) + '...' 
+      : displayText
+    
+    return (
+      <SmartTooltip content={tooltipContent}>
+        <span 
+          className="rule-badge" 
+          style={{ cursor: 'help' }}
+        >
+          {finalDisplayText}
+        </span>
+      </SmartTooltip>
+    )
+  }
+  
+  // No rule found
+  return <span style={{ color: '#999' }}>—</span>
 }
 
 const ExecutiveDashboard: React.FC = () => {
@@ -212,6 +406,7 @@ const ExecutiveDashboard: React.FC = () => {
   const [gridApi, setGridApi] = useState<GridApi | null>(null)
   const [loading, setLoading] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
+  const [calculating, setCalculating] = useState<boolean>(false) // For Run Calculation button
   
   // Manual Tree Engine: Track expanded nodes (matches Tab 2 & 3)
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set())
@@ -385,6 +580,30 @@ const ExecutiveDashboard: React.FC = () => {
         versionTag: response.data.version_tag
       })
       
+      // Phase 5.9: Debug - Check if measure_name is in the API response
+      if (response.data.hierarchy && response.data.hierarchy.length > 0) {
+        const sampleNode = response.data.hierarchy[0]
+        console.log('TAB 4: Sample node from API:', {
+          node_name: sampleNode.node_name,
+          hasRule: !!sampleNode.rule,
+          rule: sampleNode.rule ? {
+            rule_id: sampleNode.rule.rule_id,
+            logic_en: sampleNode.rule.logic_en,
+            measure_name: sampleNode.rule.measure_name, // Check if this exists
+            rule_type: sampleNode.rule.rule_type
+          } : null
+        })
+        
+        // Find a node with a rule to debug
+        const nodeWithRule = response.data.hierarchy.find((n: any) => n.rule && n.rule.logic_en)
+        if (nodeWithRule) {
+          console.log('TAB 4: Node with rule found:', {
+            node_name: nodeWithRule.node_name,
+            rule: JSON.stringify(nodeWithRule.rule, null, 2)
+          })
+        }
+      }
+      
       // Store last calculated timestamp
       if (response.data.run_timestamp) {
         setLastCalculated(response.data.run_timestamp)
@@ -408,11 +627,10 @@ const ExecutiveDashboard: React.FC = () => {
       })
       setRowData(flatData)
       
-      // Initialize expandedNodes: expand root nodes (depth 0) by default
+      // Initialize expandedNodes: expand first 4 levels by default (matches Tab 2)
       const defaultExpanded = new Set<string>()
       flatData.forEach(row => {
-        const hasChildren = row.children && Array.isArray(row.children) && row.children.length > 0
-        if (row.depth === 0 && hasChildren) {
+        if (row.depth < 4 && !row.is_leaf) {
           defaultExpanded.add(row.node_id)
         }
       })
@@ -507,11 +725,10 @@ const ExecutiveDashboard: React.FC = () => {
       setTargetData(targetFlat)
       setRowData(mergedData)
       
-      // Initialize expandedNodes: expand root nodes (depth 0) by default
+      // Initialize expandedNodes: expand first 4 levels by default (matches Tab 2)
       const defaultExpanded = new Set<string>()
       mergedData.forEach(row => {
-        const hasChildren = row.children && Array.isArray(row.children) && row.children.length > 0
-        if (row.depth === 0 && hasChildren) {
+        if (row.depth < 4 && !row.is_leaf) {
           defaultExpanded.add(row.node_id)
         }
       })
@@ -1519,6 +1736,57 @@ const ExecutiveDashboard: React.FC = () => {
     document.body.removeChild(link)
   }
 
+  // Handle Run Calculation (same logic as Tab 3)
+  const handleRunCalculation = async () => {
+    if (!selectedUseCaseId) {
+      setError('Please select a use case first.')
+      return
+    }
+
+    setCalculating(true)
+    setError(null)
+
+    try {
+      const response = await axios.post(
+        `${API_BASE_URL}/api/v1/use-cases/${selectedUseCaseId}/calculate`
+      )
+
+      // Show success message
+      const rulesCount = response.data.rules_applied || 0
+      const totalPlug = response.data.total_plug?.daily || 0
+      const formattedPlug = new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD',
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      }).format(totalPlug)
+
+      console.log(`[TAB 4] Calculation complete: ${rulesCount} rules applied, Total Plug: ${formattedPlug}`)
+
+      // Update last calculated timestamp
+      if (response.data.run_timestamp) {
+        setLastCalculated(response.data.run_timestamp)
+      }
+
+      // Automatically refresh results after calculation succeeds
+      // Small delay to ensure backend has finished writing results
+      setTimeout(() => {
+        loadResults(selectedUseCaseId)
+        // Also reload runs to get the new run in the dropdown
+        loadRuns(selectedUseCaseId)
+      }, 500)
+
+      // Show success toast/notification (optional - can be enhanced with toast library)
+      alert(`✅ Calculation complete!\n${rulesCount} rules applied\nTotal Plug: ${formattedPlug}`)
+
+    } catch (err: any) {
+      console.error('[TAB 4] Failed to run calculation:', err)
+      setError(err.response?.data?.detail || 'Failed to run calculation. Please try again.')
+    } finally {
+      setCalculating(false)
+    }
+  }
+
   const handleUseCaseChange = (useCaseId: string) => {
     const useCase = useCases.find(uc => uc.use_case_id === useCaseId)
     setSelectedUseCaseId(useCaseId)
@@ -1634,6 +1902,92 @@ const ExecutiveDashboard: React.FC = () => {
               Last Calculated: {new Date(lastCalculated).toLocaleString()}
             </div>
           )}
+          {/* Run Calculation Button */}
+          <button
+            onClick={handleRunCalculation}
+            disabled={calculating || !selectedUseCaseId}
+            style={{
+              background: calculating 
+                ? 'linear-gradient(135deg, #6b7280 0%, #4b5563 100%)' 
+                : 'linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)',
+              color: 'white',
+              border: 'none',
+              padding: '0.5rem 1rem',
+              borderRadius: '6px',
+              fontSize: '0.875rem',
+              fontWeight: '600',
+              cursor: calculating || !selectedUseCaseId ? 'not-allowed' : 'pointer',
+              opacity: calculating || !selectedUseCaseId ? 0.6 : 1,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              marginRight: '8px',
+              transition: 'all 0.2s ease'
+            }}
+            title={calculating ? 'Processing calculation...' : !selectedUseCaseId ? 'Please select a use case first' : 'Run waterfall calculation with current business rules'}
+          >
+            {calculating ? (
+              <>
+                <span style={{ 
+                  display: 'inline-block',
+                  width: '14px',
+                  height: '14px',
+                  border: '2px solid rgba(255, 255, 255, 0.3)',
+                  borderTopColor: 'white',
+                  borderRadius: '50%',
+                  animation: 'spin 0.8s linear infinite'
+                }}></span>
+                Processing...
+              </>
+            ) : (
+              <>
+                <span style={{ fontSize: '1em' }}>⚡</span>
+                Run Calculation
+              </>
+            )}
+          </button>
+          {/* Refresh Button */}
+          <button
+            onClick={() => selectedUseCaseId && loadResults(selectedUseCaseId, selectedRunId || undefined)}
+            disabled={loading || !selectedUseCaseId}
+            style={{
+              background: '#f3f4f6',
+              color: '#374151',
+              border: '1px solid #d1d5db',
+              padding: '0.5rem 1rem',
+              borderRadius: '6px',
+              fontSize: '0.875rem',
+              fontWeight: '500',
+              cursor: loading || !selectedUseCaseId ? 'not-allowed' : 'pointer',
+              opacity: loading || !selectedUseCaseId ? 0.6 : 1,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              marginRight: '8px',
+              transition: 'all 0.2s ease'
+            }}
+            title={!selectedUseCaseId ? 'Please select a use case first' : 'Refresh current results'}
+          >
+            {loading ? (
+              <>
+                <span style={{ 
+                  display: 'inline-block',
+                  width: '14px',
+                  height: '14px',
+                  border: '2px solid rgba(55, 65, 81, 0.3)',
+                  borderTopColor: '#374151',
+                  borderRadius: '50%',
+                  animation: 'spin 0.8s linear infinite'
+                }}></span>
+                Loading...
+              </>
+            ) : (
+              <>
+                <span>🔄</span>
+                Refresh
+              </>
+            )}
+          </button>
           <button
             className="export-button"
             onClick={handleExportReconciliation}

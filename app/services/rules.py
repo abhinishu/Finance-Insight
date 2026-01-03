@@ -16,7 +16,8 @@ from app.models import FactPnlGold, MetadataRule, UseCase
 logger = logging.getLogger(__name__)
 
 # Fact table schema - allowed fields for rule conditions
-FACT_TABLE_FIELDS = {
+# Schema for fact_pnl_gold (Use Cases 1 & 2)
+FACT_PNL_GOLD_FIELDS = {
     'account_id': 'String',
     'cc_id': 'String',
     'book_id': 'String',
@@ -27,6 +28,37 @@ FACT_TABLE_FIELDS = {
     'ytd_pnl': 'Numeric',
     'pytd_pnl': 'Numeric',
 }
+
+# Schema for fact_pnl_use_case_3 (Use Case 3)
+FACT_PNL_UC3_FIELDS = {
+    'strategy': 'String',  # Mapped from 'strategy_id'
+    'book': 'String',  # Mapped from 'book_id'
+    'cost_center': 'String',  # Mapped from 'cc_id'
+    'effective_date': 'Date',  # Mapped from 'trade_date'
+    'division': 'String',
+    'business_area': 'String',
+    'product_line': 'String',
+    'process_1': 'String',
+    'process_2': 'String',
+    'pnl_daily': 'Numeric',
+    'pnl_commission': 'Numeric',
+    'pnl_trade': 'Numeric',
+}
+
+# Schema for fact_pnl_entries (Use Case 2 - Project Sterling)
+FACT_PNL_ENTRIES_FIELDS = {
+    'account_id': 'String',
+    'cc_id': 'String',
+    'book_id': 'String',
+    'strategy_id': 'String',
+    'pnl_date': 'Date',  # Mapped from 'trade_date'
+    'daily_amount': 'Numeric',
+    'wtd_amount': 'Numeric',
+    'ytd_amount': 'Numeric',
+}
+
+# Legacy: Keep for backward compatibility
+FACT_TABLE_FIELDS = FACT_PNL_GOLD_FIELDS
 
 # Supported operators for manual rules
 SUPPORTED_OPERATORS = {
@@ -39,37 +71,105 @@ SUPPORTED_OPERATORS = {
 }
 
 
-def validate_field_exists(field: str) -> bool:
+def get_column_mapping(table_name: str) -> Dict[str, str]:
     """
-    Validate that a field exists in the fact_pnl_gold schema.
+    Get column mapping from frontend field names to actual database column names.
+    
+    This function maps the standard field names (used in the UI) to the actual
+    column names in each table. For fact_pnl_gold, the mapping is identity (no change).
+    For fact_pnl_use_case_3, fields are mapped to match the table schema.
     
     Args:
-        field: Field name to validate
+        table_name: Target table name (e.g., 'fact_pnl_gold', 'fact_pnl_use_case_3')
     
     Returns:
-        True if field exists, False otherwise
+        Dictionary mapping frontend field names to database column names.
+        Empty dict means identity mapping (field name = column name).
     """
-    return field in FACT_TABLE_FIELDS
+    if table_name == 'fact_pnl_use_case_3':
+        return {
+            'strategy_id': 'strategy',
+            'book_id': 'book',
+            'cc_id': 'cost_center',
+            'trade_date': 'effective_date',
+        }
+    elif table_name == 'fact_pnl_entries':
+        return {
+            'trade_date': 'pnl_date',
+        }
+    else:
+        # fact_pnl_gold: identity mapping (no change)
+        return {}
 
 
-def validate_conditions(conditions: List[RuleCondition]) -> List[str]:
+def get_table_fields(table_name: str) -> Dict[str, str]:
+    """
+    Get allowed fields for a specific table.
+    
+    Args:
+        table_name: Target table name
+    
+    Returns:
+        Dictionary of allowed field names and their types
+    """
+    if table_name == 'fact_pnl_use_case_3':
+        return FACT_PNL_UC3_FIELDS
+    elif table_name == 'fact_pnl_entries':
+        return FACT_PNL_ENTRIES_FIELDS
+    else:
+        # Default: fact_pnl_gold
+        return FACT_PNL_GOLD_FIELDS
+
+
+def validate_field_exists(field: str, table_name: str = 'fact_pnl_gold') -> bool:
+    """
+    Validate that a field exists in the specified table schema.
+    
+    This function checks if a field (frontend name) is valid for the given table.
+    It considers both the direct field name and any mapped column names.
+    
+    Args:
+        field: Field name to validate (frontend field name, e.g., 'strategy_id')
+        table_name: Target table name (default: 'fact_pnl_gold')
+    
+    Returns:
+        True if field exists (either directly or via mapping), False otherwise
+    """
+    # Get the mapping for this table
+    mapping = get_column_mapping(table_name)
+    
+    # Check if field maps to a valid column
+    mapped_column = mapping.get(field, field)
+    
+    # Get allowed fields for this table
+    allowed_fields = get_table_fields(table_name)
+    
+    # Check if the mapped column exists in the table schema
+    return mapped_column in allowed_fields
+
+
+def validate_conditions(conditions: List[RuleCondition], table_name: str = 'fact_pnl_gold') -> List[str]:
     """
     Validate a list of conditions against the fact table schema.
     
     Args:
         conditions: List of RuleCondition objects
+        table_name: Target table name (default: 'fact_pnl_gold')
     
     Returns:
         List of error messages (empty if validation passes)
     """
     errors = []
     
+    # Get allowed fields for this table
+    allowed_fields = get_table_fields(table_name)
+    
     for idx, condition in enumerate(conditions):
         # Validate field exists
-        if not validate_field_exists(condition.field):
+        if not validate_field_exists(condition.field, table_name):
             errors.append(
-                f"Condition {idx + 1}: Field '{condition.field}' does not exist in fact_pnl_gold. "
-                f"Allowed fields: {list(FACT_TABLE_FIELDS.keys())}"
+                f"Condition {idx + 1}: Field '{condition.field}' does not exist in {table_name}. "
+                f"Allowed fields: {list(allowed_fields.keys())}"
             )
         
         # Validate operator is supported
@@ -123,21 +223,29 @@ def convert_conditions_to_json(conditions: List[RuleCondition]) -> Dict[str, Any
     }
 
 
-def convert_json_to_sql(predicate_json: Dict[str, Any]) -> str:
+def convert_json_to_sql(predicate_json: Dict[str, Any], table_name: str = 'fact_pnl_gold') -> str:
     """
     Convert JSON predicate to safe, parameterized SQL WHERE clause.
     
+    This function maps frontend field names to actual database column names
+    based on the target table. For example, 'strategy_id' maps to 'strategy'
+    for fact_pnl_use_case_3.
+    
     Args:
         predicate_json: JSON predicate dictionary
+        table_name: Target table name (default: 'fact_pnl_gold')
     
     Returns:
-        SQL WHERE clause string
+        SQL WHERE clause string with mapped column names
     """
     conditions = predicate_json.get('conditions', [])
     conjunction = predicate_json.get('conjunction', 'AND')
     
     if not conditions:
         raise ValueError("No conditions provided in predicate_json")
+    
+    # Get column mapping for this table
+    mapping = get_column_mapping(table_name)
     
     sql_parts = []
     
@@ -146,33 +254,36 @@ def convert_json_to_sql(predicate_json: Dict[str, Any]) -> str:
         operator = cond['operator']
         value = cond['value']
         
+        # Map field name to actual database column name
+        db_column = mapping.get(field, field)
+        
         # Validate field exists
-        if not validate_field_exists(field):
-            raise ValueError(f"Field '{field}' does not exist in fact_pnl_gold")
+        if not validate_field_exists(field, table_name):
+            raise ValueError(f"Field '{field}' does not exist in {table_name}")
         
         # Convert operator to SQL
         sql_operator = SUPPORTED_OPERATORS.get(operator)
         if not sql_operator:
             raise ValueError(f"Unsupported operator: {operator}")
         
-        # Build SQL condition
+        # Build SQL condition using mapped column name
         if operator in ['in', 'not_in']:
             # Handle list values
             if not isinstance(value, list):
                 raise ValueError(f"Operator '{operator}' requires a list value")
             # Escape and quote string values
             quoted_values = [f'\'{str(v).replace("'", "''")}\'' for v in value]
-            sql_parts.append(f"{field} {sql_operator} ({', '.join(quoted_values)})")
+            sql_parts.append(f"{db_column} {sql_operator} ({', '.join(quoted_values)})")
         elif operator in ['equals', 'not_equals']:
             # String comparison - quote the value
             if isinstance(value, str):
                 escaped_value = value.replace("'", "''")
-                sql_parts.append(f"{field} {sql_operator} '{escaped_value}'")
+                sql_parts.append(f"{db_column} {sql_operator} '{escaped_value}'")
             else:
-                sql_parts.append(f"{field} {sql_operator} {value}")
+                sql_parts.append(f"{db_column} {sql_operator} {value}")
         else:
             # Numeric comparison
-            sql_parts.append(f"{field} {sql_operator} {value}")
+            sql_parts.append(f"{db_column} {sql_operator} {value}")
     
     # Join with conjunction
     sql_where = f" {conjunction} ".join(sql_parts)
@@ -249,19 +360,25 @@ def create_manual_rule(
     if not use_case:
         raise ValueError(f"Use case '{use_case_id}' not found")
     
+    # Determine table name from use case
+    table_name = 'fact_pnl_gold'  # Default
+    if use_case and use_case.input_table_name:
+        table_name = use_case.input_table_name
+        logger.info(f"[create_manual_rule] Using table '{table_name}' for use case {use_case_id}")
+    
     # Validate conditions
     if not rule_data.conditions:
         raise ValueError("No conditions provided for manual rule")
     
-    validation_errors = validate_conditions(rule_data.conditions)
+    validation_errors = validate_conditions(rule_data.conditions, table_name)
     if validation_errors:
         raise ValueError(f"Validation failed: {'; '.join(validation_errors)}")
     
     # Convert to JSON predicate
     predicate_json = convert_conditions_to_json(rule_data.conditions)
     
-    # Generate SQL WHERE clause
-    sql_where = convert_json_to_sql(predicate_json)
+    # Generate SQL WHERE clause with table-specific column mapping
+    sql_where = convert_json_to_sql(predicate_json, table_name)
     
     # Generate natural language description
     logic_en = generate_logic_en_from_conditions(rule_data.conditions)

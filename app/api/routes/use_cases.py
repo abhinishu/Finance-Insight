@@ -3,10 +3,14 @@ Use Case Management API routes for Finance-Insight
 Provides CRUD operations for use cases (Phase 1: Basic create/list)
 """
 
+import io
 from typing import List, Optional
 from uuid import UUID
 
+import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_db
@@ -278,3 +282,165 @@ def get_use_case_hierarchy(
         report_id=None,
         db=db
     )
+
+
+@router.get("/use-cases/{use_case_id}/schema")
+def get_use_case_schema(use_case_id: UUID, db: Session = Depends(get_db)):
+    """
+    Get available schema fields for a use case based on its input_table_name.
+    
+    This endpoint returns the correct field names that should be displayed in the
+    Rule Editor dropdown based on the use case's table configuration.
+    
+    Args:
+        use_case_id: Use case UUID
+    
+    Returns:
+        Dictionary with 'fields' array containing field objects with:
+        - value: Field name to use in rules (frontend name)
+        - label: Display label
+        - type: Field type (String, Date, Numeric)
+    """
+    use_case = db.query(UseCase).filter(UseCase.use_case_id == use_case_id).first()
+    
+    if not use_case:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Use case '{use_case_id}' not found"
+        )
+    
+    # Determine fields based on input_table_name
+    table_name = use_case.input_table_name or 'fact_pnl_gold'
+    
+    if table_name == 'fact_pnl_use_case_3':
+        # Use Case 3: fact_pnl_use_case_3 uses different column names
+        # Phase 5.9: Include ALL dimension fields from the table
+        fields = [
+            {'value': 'strategy', 'label': 'Strategy', 'type': 'String'},
+            {'value': 'book', 'label': 'Book', 'type': 'String'},
+            {'value': 'cost_center', 'label': 'Cost Center', 'type': 'String'},
+            {'value': 'process_1', 'label': 'Process 1', 'type': 'String'},
+            {'value': 'process_2', 'label': 'Process 2', 'type': 'String'},
+            {'value': 'division', 'label': 'Division', 'type': 'String'},
+            {'value': 'business_area', 'label': 'Business Area', 'type': 'String'},
+            {'value': 'product_line', 'label': 'Product Line', 'type': 'String'},
+            {'value': 'effective_date', 'label': 'Effective Date', 'type': 'Date'},
+        ]
+    elif table_name == 'fact_pnl_entries':
+        # Use Case 2: fact_pnl_entries
+        fields = [
+            {'value': 'account_id', 'label': 'Account ID', 'type': 'String'},
+            {'value': 'cc_id', 'label': 'Cost Center ID', 'type': 'String'},
+            {'value': 'book_id', 'label': 'Book ID', 'type': 'String'},
+            {'value': 'strategy_id', 'label': 'Strategy ID', 'type': 'String'},
+            {'value': 'pnl_date', 'label': 'P&L Date', 'type': 'Date'},
+        ]
+    else:
+        # Default: fact_pnl_gold (Use Cases 1 & 2)
+        fields = [
+            {'value': 'account_id', 'label': 'Account ID', 'type': 'String'},
+            {'value': 'cc_id', 'label': 'Cost Center ID', 'type': 'String'},
+            {'value': 'book_id', 'label': 'Book ID', 'type': 'String'},
+            {'value': 'strategy_id', 'label': 'Strategy ID', 'type': 'String'},
+            {'value': 'trade_date', 'label': 'Trade Date', 'type': 'Date'},
+        ]
+    
+    return {
+        'use_case_id': str(use_case_id),
+        'table_name': table_name,
+        'fields': fields
+    }
+
+
+@router.get("/use-cases/{use_case_id}/input-data/csv")
+def export_input_data_csv(
+    use_case_id: UUID,
+    db: Session = Depends(get_db)
+):
+    """
+    Export raw input data from the use case's input table as CSV.
+    
+    This endpoint queries the table specified by the use case's `input_table_name`
+    and returns all rows as a CSV file download.
+    
+    Args:
+        use_case_id: Use case UUID
+        
+    Returns:
+        CSV file stream with all data from the input table
+        
+    Raises:
+        HTTPException: If use case not found or table doesn't exist
+    """
+    # Fetch use case
+    use_case = db.query(UseCase).filter(UseCase.use_case_id == use_case_id).first()
+    
+    if not use_case:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Use case '{use_case_id}' not found"
+        )
+    
+    # Determine input table name
+    # Default to fact_pnl_gold if not specified (for backward compatibility)
+    table_name = use_case.input_table_name or 'fact_pnl_gold'
+    
+    # Validate table name to prevent SQL injection
+    # Only allow alphanumeric and underscore characters
+    if not all(c.isalnum() or c == '_' for c in table_name):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid table name: {table_name}"
+        )
+    
+    try:
+        # Query all data from the table using raw SQL
+        # Use SQLAlchemy's text() with proper identifier quoting for table name
+        # Note: Table names cannot be parameterized, but we've validated the table name above
+        # SQL injection protection: table_name is validated to only contain alphanumeric and underscore
+        
+        # Use SQLAlchemy text() with proper quoting (PostgreSQL uses double quotes for identifiers)
+        sql_query = text(f'SELECT * FROM "{table_name}"')
+        
+        # Execute query and load into pandas DataFrame
+        result = db.execute(sql_query)
+        rows = result.fetchall()
+        
+        if not rows:
+            # Return empty CSV if no data
+            df = pd.DataFrame()
+        else:
+            # Convert to DataFrame
+            # Get column names from result keys
+            column_names = result.keys()
+            df = pd.DataFrame(rows, columns=column_names)
+        
+        # Convert DataFrame to CSV
+        csv_buffer = io.StringIO()
+        df.to_csv(csv_buffer, index=False)
+        csv_content = csv_buffer.getvalue()
+        csv_buffer.close()
+        
+        # Create filename
+        use_case_name_safe = "".join(c for c in use_case.name if c.isalnum() or c in (' ', '-', '_')).rstrip()
+        filename = f"raw_input_{use_case_name_safe}_{str(use_case_id)[:8]}.csv"
+        
+        # Return as streaming response
+        return StreamingResponse(
+            io.BytesIO(csv_content.encode('utf-8')),
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": f"attachment; filename={filename}"
+            }
+        )
+        
+    except Exception as e:
+        # Log the error for debugging
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Error exporting CSV for use case {use_case_id}: {str(e)}", exc_info=True)
+        
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to export CSV: {str(e)}"
+        )

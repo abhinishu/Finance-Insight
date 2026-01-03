@@ -16,6 +16,43 @@ const MEASURE_LABELS: Record<string, string> = {
   'ytd_pnl': 'YTD P&L'
 }
 
+// Helper function to format Math rule formulas: Replace node IDs with readable names
+const formatFormula = (expression: string, hierarchyNodes: any[]): string => {
+  if (!expression || !hierarchyNodes || hierarchyNodes.length === 0) {
+    return expression || ''
+  }
+  
+  // Create a map of node_id -> node_name for quick lookup
+  const nodeMap = new Map<string, string>()
+  hierarchyNodes.forEach(node => {
+    if (node.node_id && node.node_name) {
+      // Store both exact match and uppercase version (for case-insensitive matching)
+      nodeMap.set(node.node_id, node.node_name)
+      nodeMap.set(node.node_id.toUpperCase(), node.node_name)
+    }
+  })
+  
+  // Replace node IDs with node names in the expression
+  // Use word boundaries to avoid partial matches (e.g., "NODE_5" shouldn't match "NODE_50")
+  let formatted = expression
+  
+  // Sort node IDs by length (longest first) to avoid partial replacements
+  const sortedNodeIds = Array.from(nodeMap.keys()).sort((a, b) => b.length - a.length)
+  
+  sortedNodeIds.forEach(nodeId => {
+    const nodeName = nodeMap.get(nodeId)
+    if (nodeName) {
+      // Use regex with word boundaries to match whole node IDs only
+      // Escape special regex characters in nodeId
+      const escapedNodeId = nodeId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      const regex = new RegExp(`\\b${escapedNodeId}\\b`, 'gi')
+      formatted = formatted.replace(regex, nodeName)
+    }
+  })
+  
+  return formatted
+}
+
 // Rich Tooltip Component for Business Rule Badge (shared with ExecutiveDashboard)
 const RichTooltip: React.FC<{ 
   ruleName: string
@@ -508,14 +545,15 @@ const RuleEditor: React.FC = () => {
 
   const gridRef = useRef<AgGridReact>(null)
 
-  // Available fields for Standard Mode
-  const availableFields = [
+  // Schema fields state (fetched from API based on use case)
+  const [availableFields, setAvailableFields] = useState<Array<{ value: string; label: string }>>([
+    // Default fields (fallback for Use Cases 1 & 2)
     { value: 'account_id', label: 'Account ID' },
     { value: 'cc_id', label: 'Cost Center ID' },
     { value: 'book_id', label: 'Book ID' },
     { value: 'strategy_id', label: 'Strategy ID' },
     { value: 'trade_date', label: 'Trade Date' },
-  ]
+  ])
 
   const availableOperators = [
     { value: 'equals', label: 'Equals' },
@@ -675,24 +713,172 @@ const RuleEditor: React.FC = () => {
     return () => { isMounted = false }
   }, [selectedUseCaseId]) // CRITICAL: Run whenever ID changes
 
+  // Phase 5.9: Smart Default Mode Detection - Load existing rule when modal opens
+  useEffect(() => {
+    if (modalOpen && selectedNodes.length === 1) {
+      const node = selectedNodes[0]
+      
+      if (node.hasRule && node.rule) {
+        const rule = node.rule
+        
+        // Determine default mode based on rule type
+        if (rule.rule_type === 'NODE_ARITHMETIC' && rule.rule_expression) {
+          // Math Rule - Standard Mode (Math)
+          setEditorMode('standard')
+          setStandardRuleType('math')
+          setMathFormula(rule.rule_expression)
+          setRulePreview({
+            logic_en: `Math Formula: ${rule.rule_expression}`,
+            sql_where: '',
+            predicate_json: null,
+            translation_successful: true
+          })
+        } else if (rule.predicate_json) {
+          // Standard Mode Filter rule - default to Standard Mode
+          setEditorMode('standard')
+          setStandardRuleType('filter')
+          setSelectedMeasure(rule.measure_name || 'daily_pnl')
+          
+          // Convert predicate_json to conditions for Standard Mode
+          const conditions: RuleCondition[] = []
+          if (rule.predicate_json.conditions) {
+            rule.predicate_json.conditions.forEach((cond: any) => {
+              conditions.push({
+                field: cond.field || '',
+                operator: cond.operator || 'equals',
+                value: cond.value || ''
+              })
+            })
+          }
+          if (conditions.length > 0) {
+            setConditions(conditions)
+          }
+          
+          // Load preview
+          if (rule.sql_where) {
+            setRulePreview({
+              logic_en: rule.logic_en,
+              sql_where: rule.sql_where,
+              predicate_json: rule.predicate_json,
+              translation_successful: true
+            })
+          }
+        } else if (rule.logic_en) {
+          // AI Mode rule - default to AI Mode
+          setEditorMode('ai')
+          setAiPrompt(rule.logic_en)
+          
+          // Load preview if available
+          if (rule.sql_where) {
+            setRulePreview({
+              logic_en: rule.logic_en,
+              sql_where: rule.sql_where,
+              predicate_json: rule.predicate_json,
+              translation_successful: true
+            })
+          }
+        }
+      } else {
+        // No existing rule - default to Standard Mode (as user requested)
+        setEditorMode('standard')
+        setStandardRuleType('filter')
+        setSelectedMeasure('daily_pnl')
+        setConditions([{ field: '', operator: 'equals', value: '' }])
+        setAiPrompt('')
+        setMathFormula('')
+        setRulePreview(null)
+      }
+    }
+  }, [modalOpen, selectedNodes])
+
+  // Load schema fields when use case is selected
+  useEffect(() => {
+    const loadSchemaFields = async () => {
+      if (!selectedUseCaseId) {
+        // Reset to default fields if no use case selected
+        setAvailableFields([
+          { value: 'account_id', label: 'Account ID' },
+          { value: 'cc_id', label: 'Cost Center ID' },
+          { value: 'book_id', label: 'Book ID' },
+          { value: 'strategy_id', label: 'Strategy ID' },
+          { value: 'trade_date', label: 'Trade Date' },
+        ])
+        setAvailableFieldsForHelper([
+          { field: 'book_id', label: 'Book ID', type: 'String' },
+          { field: 'strategy_id', label: 'Strategy ID', type: 'String' },
+          { field: 'account_id', label: 'Account ID', type: 'String' },
+          { field: 'cc_id', label: 'Cost Center ID', type: 'String' },
+          { field: 'trade_date', label: 'Trade Date', type: 'Date' },
+          { field: 'daily_pnl', label: 'Daily P&L', type: 'Numeric' },
+          { field: 'mtd_pnl', label: 'MTD P&L', type: 'Numeric' },
+          { field: 'ytd_pnl', label: 'YTD P&L', type: 'Numeric' },
+        ])
+        return
+      }
+
+      try {
+        const response = await axios.get(
+          `${API_BASE_URL}/api/v1/use-cases/${selectedUseCaseId}/schema`
+        )
+        
+        const schemaData = response.data
+        if (schemaData && schemaData.fields) {
+          // Update availableFields for Standard Mode dropdown
+          setAvailableFields(schemaData.fields.map((f: any) => ({
+            value: f.value,
+            label: f.label
+          })))
+          
+          // Update availableFieldsForHelper (dimension fields + measure fields)
+          const dimensionFields = schemaData.fields.map((f: any) => ({
+            field: f.value,
+            label: f.label,
+            type: f.type
+          }))
+          
+          // Add measure fields (these are consistent across all use cases)
+          const measureFields = [
+            { field: 'daily_pnl', label: 'Daily P&L', type: 'Numeric' },
+            { field: 'mtd_pnl', label: 'MTD P&L', type: 'Numeric' },
+            { field: 'ytd_pnl', label: 'YTD P&L', type: 'Numeric' },
+          ]
+          
+          setAvailableFieldsForHelper([...dimensionFields, ...measureFields])
+          
+          console.log(`[RuleEditor] Loaded schema for use case ${selectedUseCaseId}:`, schemaData)
+        }
+      } catch (err: any) {
+        console.error('Failed to load schema fields:', err)
+        // Keep default fields on error
+      }
+    }
+
+    loadSchemaFields()
+  }, [selectedUseCaseId])
+
   // Load hierarchy when use case is selected
   useEffect(() => {
     if (selectedUseCase && selectedUseCaseId) {
       loadHierarchyForUseCase(selectedUseCaseId, selectedUseCase.atlas_structure_id)
       
       // Load shared tree state (Tab 2 & 3 unification)
+      // Only use saved state if it has meaningful expansion (more than just root)
       const stateKey = getTreeStateKey(selectedUseCase.atlas_structure_id)
       const savedState = localStorage.getItem(stateKey)
       if (savedState) {
         try {
           const state = JSON.parse(savedState)
-          if (state.expandedNodes) {
+          // Only use saved state if it has meaningful expansion (more than just root nodes)
+          if (state.expandedNodes && state.expandedNodes.length > 1) {
             setExpandedNodes(new Set(state.expandedNodes))
           }
+          // If saved state is minimal or empty, default expansion will be set in loadHierarchyForUseCase
         } catch (e) {
           console.warn('Failed to load shared tree state:', e)
+          // Fallback: default expansion will be set in loadHierarchyForUseCase
         }
       }
+      // If no saved state, default expansion will be set in loadHierarchyForUseCase
     }
   }, [selectedUseCase, selectedUseCaseId])
 
@@ -916,17 +1102,18 @@ const RuleEditor: React.FC = () => {
               parent_node_id: node.parent_node_id,
               depth: node.depth || 0,
               is_leaf: node.is_leaf || false,
-              // Use adjusted_value from results (Adjusted P&L)
-              daily_pnl: node.adjusted_value?.daily?.toString() || node.natural_value?.daily?.toString() || '0',
-              mtd_pnl: node.adjusted_value?.mtd?.toString() || node.natural_value?.mtd?.toString() || '0',
-              ytd_pnl: node.adjusted_value?.ytd?.toString() || node.natural_value?.ytd?.toString() || '0',
+              // Always show Natural Value in Rule Editor so users see the "Source Data"
+              // This matches Tab 4 behavior (Original Daily P&L = Natural Value)
+              daily_pnl: node.natural_value?.daily?.toString() || '0',
+              mtd_pnl: node.natural_value?.mtd?.toString() || '0',
+              ytd_pnl: node.natural_value?.ytd?.toString() || '0',
               path: node.path || [node.node_name],
               children: node.children ? convertResultsToHierarchy(node.children) : []
             }))
           }
           
           hierarchy = convertResultsToHierarchy(resultsResponse.data.hierarchy)
-          console.log('Tab 3: Loaded Adjusted P&L from results endpoint')
+          console.log('Tab 3: Loaded Natural P&L (Original values) from results endpoint')
         } else {
           // CRITICAL: No results available - immediately fall back to discovery endpoint (unified_pnl_service)
           console.log('Tab 3: No results found, falling back to discovery endpoint (unified_pnl_service baseline)')
@@ -1010,10 +1197,10 @@ const RuleEditor: React.FC = () => {
         
         setRowData(flatData)
         
-        // Initialize expandedNodes: expand root nodes (depth 0) by default
+        // Initialize expandedNodes: expand first 4 levels by default (matches Tab 2)
         const defaultExpanded = new Set<string>()
         flatData.forEach(row => {
-          if (row.depth === 0 && !row.is_leaf) {
+          if (row.depth < 4 && !row.is_leaf) {
             defaultExpanded.add(row.node_id)
           }
         })
@@ -1037,10 +1224,10 @@ const RuleEditor: React.FC = () => {
         hierarchy.forEach(node => processNode(node))
         setRowData(fallbackData)
         
-        // Initialize expandedNodes for fallback data
+        // Initialize expandedNodes for fallback data: expand first 4 levels (matches Tab 2)
         const defaultExpanded = new Set<string>()
         fallbackData.forEach(row => {
-          if (row.depth === 0 && !row.is_leaf) {
+          if (row.depth < 4 && !row.is_leaf) {
             defaultExpanded.add(row.node_id)
           }
         })
@@ -1112,10 +1299,10 @@ const RuleEditor: React.FC = () => {
         const flatData = flattenHierarchy(hierarchy)
         setRowData(flatData)
         
-        // Initialize expandedNodes: expand root nodes (depth 0) by default
+        // Initialize expandedNodes: expand first 4 levels by default (matches Tab 2)
         const defaultExpanded = new Set<string>()
         flatData.forEach(row => {
-          if (row.depth === 0 && !row.is_leaf) {
+          if (row.depth < 4 && !row.is_leaf) {
             defaultExpanded.add(row.node_id)
           }
         })
@@ -1139,10 +1326,10 @@ const RuleEditor: React.FC = () => {
         hierarchy.forEach(node => processNode(node))
         setRowData(fallbackData)
         
-        // Initialize expandedNodes for fallback data
+        // Initialize expandedNodes for fallback data: expand first 4 levels (matches Tab 2)
         const defaultExpanded = new Set<string>()
         fallbackData.forEach(row => {
-          if (row.depth === 0 && !row.is_leaf) {
+          if (row.depth < 4 && !row.is_leaf) {
             defaultExpanded.add(row.node_id)
           }
         })
@@ -1338,8 +1525,9 @@ const RuleEditor: React.FC = () => {
     }
   }
 
-  // Available schema fields for Field Helper Tag Cloud
-  const availableFieldsForHelper = [
+  // Available schema fields for Field Helper Tag Cloud (derived from availableFields + measures)
+  const [availableFieldsForHelper, setAvailableFieldsForHelper] = useState<Array<{ field: string; label: string; type: string }>>([
+    // Default fields (fallback)
     { field: 'book_id', label: 'Book ID', type: 'String' },
     { field: 'strategy_id', label: 'Strategy ID', type: 'String' },
     { field: 'account_id', label: 'Account ID', type: 'String' },
@@ -1348,7 +1536,7 @@ const RuleEditor: React.FC = () => {
     { field: 'daily_pnl', label: 'Daily P&L', type: 'Numeric' },
     { field: 'mtd_pnl', label: 'MTD P&L', type: 'Numeric' },
     { field: 'ytd_pnl', label: 'YTD P&L', type: 'Numeric' },
-  ]
+  ])
 
   // Sample values state for Field Helper
   const [sampleValues, setSampleValues] = useState<Map<string, string[]>>(new Map())
@@ -1650,7 +1838,9 @@ const RuleEditor: React.FC = () => {
     
     // For Math Rules, display the formula (even if rule_expression is empty, show placeholder)
     if (isMath) {
-      const formula = rule.rule_expression || 'No formula defined'
+      const rawFormula = rule.rule_expression || 'No formula defined'
+      // Phase 5.9: Format formula to replace node IDs with readable names
+      const formula = formatFormula(rawFormula, rowData)
       const original = parseFloat(params.data?.daily_pnl || params.data?.natural_value?.daily || 0)
       const adjusted = parseFloat(params.data?.adjusted_daily || params.data?.adjusted_value?.daily || 0)
       const impact = adjusted - original
@@ -2800,7 +2990,9 @@ const RuleEditor: React.FC = () => {
             onClick={handleExecuteBusinessRules}
             disabled={calculating || !selectedUseCaseId}
             style={{ 
-              background: 'linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)',
+              background: calculating 
+                ? 'linear-gradient(135deg, #6b7280 0%, #4b5563 100%)' 
+                : 'linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)',
               color: 'white',
               border: 'none',
               padding: '0.75rem 1.5rem',
@@ -2808,16 +3000,32 @@ const RuleEditor: React.FC = () => {
               fontSize: '1rem',
               fontWeight: '600',
               cursor: calculating || !selectedUseCaseId ? 'not-allowed' : 'pointer',
-              opacity: calculating || !selectedUseCaseId ? 0.6 : 1
+              opacity: calculating || !selectedUseCaseId ? 0.6 : 1,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              transition: 'all 0.2s ease'
             }}
+            title={calculating ? 'Processing calculation...' : !selectedUseCaseId ? 'Please select a use case first' : 'Execute business rules and run waterfall calculation'}
           >
             {calculating ? (
               <>
-                <span className="spinner"></span>
-                Executing...
+                <span className="spinner" style={{ 
+                  display: 'inline-block',
+                  width: '16px',
+                  height: '16px',
+                  border: '2px solid rgba(255, 255, 255, 0.3)',
+                  borderTopColor: 'white',
+                  borderRadius: '50%',
+                  animation: 'spin 0.8s linear infinite'
+                }}></span>
+                Processing...
               </>
             ) : (
-              'Execute Business Rules'
+              <>
+                <span style={{ fontSize: '1.1em' }}>⚡</span>
+                Execute Business Rules
+              </>
             )}
           </button>
         </div>
@@ -2933,21 +3141,6 @@ const RuleEditor: React.FC = () => {
             disabled={selectedNodes.length === 0 || loading}
           >
             Clear Rules
-          </button>
-          <button
-            className="calculate-button"
-            onClick={handleExecuteBusinessRules}
-            disabled={calculating || !selectedUseCaseId || isCalculationOutdated}
-            title={isCalculationOutdated ? 'Rules have changed. Re-run calculation required.' : ''}
-          >
-            {calculating ? (
-              <>
-                <span className="spinner"></span>
-                Calculating...
-              </>
-            ) : (
-              'Run Waterfall'
-            )}
           </button>
         </div>
       </div>
@@ -3072,8 +3265,61 @@ const RuleEditor: React.FC = () => {
                     type="checkbox"
                     checked={editorMode === 'ai'}
                     onChange={(e) => {
-                      setEditorMode(e.target.checked ? 'ai' : 'standard')
-                      setRulePreview(null)
+                      const newMode = e.target.checked ? 'ai' : 'standard'
+                      
+                      // Phase 5.9: Preserve rule data when switching modes
+                      const currentNode = selectedNodes[0]
+                      if (currentNode?.hasRule && currentNode?.rule) {
+                        const rule = currentNode.rule
+                        
+                        if (newMode === 'standard' && rule.predicate_json) {
+                          // Switching to Standard Mode - load conditions
+                          setStandardRuleType('filter')
+                          setSelectedMeasure(rule.measure_name || 'daily_pnl')
+                          const conditions: RuleCondition[] = []
+                          if (rule.predicate_json.conditions) {
+                            rule.predicate_json.conditions.forEach((cond: any) => {
+                              conditions.push({
+                                field: cond.field || '',
+                                operator: cond.operator || 'equals',
+                                value: cond.value || ''
+                              })
+                            })
+                          }
+                          if (conditions.length > 0) {
+                            setConditions(conditions)
+                          }
+                          // Preserve preview
+                          if (rule.sql_where) {
+                            setRulePreview({
+                              logic_en: rule.logic_en,
+                              sql_where: rule.sql_where,
+                              predicate_json: rule.predicate_json,
+                              translation_successful: true
+                            })
+                          }
+                        } else if (newMode === 'ai' && rule.logic_en) {
+                          // Switching to AI Mode - load prompt
+                          setAiPrompt(rule.logic_en)
+                          // Preserve preview
+                          if (rule.sql_where) {
+                            setRulePreview({
+                              logic_en: rule.logic_en,
+                              sql_where: rule.sql_where,
+                              predicate_json: rule.predicate_json,
+                              translation_successful: true
+                            })
+                          }
+                        } else {
+                          // No matching rule data - clear preview
+                          setRulePreview(null)
+                        }
+                      } else {
+                        // No existing rule - clear preview
+                        setRulePreview(null)
+                      }
+                      
+                      setEditorMode(newMode)
                     }}
                   />
                   <span className="toggle-slider"></span>
@@ -3694,9 +3940,14 @@ const RuleEditor: React.FC = () => {
                     const isMath = isMathRule(rule)
                     
                     // For math rules, use rule_expression; for others, use logic_en or sql_where
-                    const ruleDescription = isMath 
+                    // Format Math rule formulas: Replace node IDs with readable names
+                    const rawExpression = isMath 
                       ? (rule.rule_expression || 'No formula defined')
                       : (rule.logic_en || rule.sql_where || 'No rule logic defined')
+                    
+                    const ruleDescription = isMath && rawExpression !== 'No formula defined'
+                      ? formatFormula(rawExpression, rowData)
+                      : rawExpression
                     const ruleBadge = isMath ? 'Math' : 'fx'
                     const badgeClass = isMath ? 'rule-badge-math' : 'rule-badge-small'
                     
@@ -3794,9 +4045,14 @@ const RuleEditor: React.FC = () => {
                 {auditRules.map((rule, index) => {
                   // Phase 5.7: Handle Math Rules in audit drawer
                   const isMath = isMathRule(rule)
-                  const ruleDescription = isMath 
+                  const rawExpression = isMath 
                     ? (rule.rule_expression || 'No formula defined')
                     : (rule.logic_en || rule.sql_where || 'No rule logic defined')
+                  
+                  // Format Math rule formulas: Replace node IDs with readable names
+                  const ruleDescription = isMath && rawExpression !== 'No formula defined'
+                    ? formatFormula(rawExpression, rowData)
+                    : rawExpression
                   
                   return (
                     <div key={rule.rule_id || index} className="audit-rule-item">
