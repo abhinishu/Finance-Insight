@@ -26,3 +26,4 @@ with engine.connect() as conn:
         input_table_name = row[1] or "NULL"
         print(f"{name:<40} | {input_table_name:<30}")
 
+

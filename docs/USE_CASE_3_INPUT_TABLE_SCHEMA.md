@@ -171,3 +171,4 @@ CREATE INDEX idx_use_case_3_use_case ON fact_pnl_use_case_3(use_case_id);
 **Last Updated:** 2026-01-01  
 **Status:** Schema Confirmed, Awaiting Business Rules Tab
 
+

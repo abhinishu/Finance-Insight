@@ -122,6 +122,11 @@
   width: 100%;
 }
 
+/* Clean Look: Match Tab 2's container styling */
+.rule-editor-grid {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+}
+
 /* Sticky Header for AG-Grid */
 .ag-theme-alpine .ag-header {
   position: sticky;
@@ -132,13 +137,53 @@
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
-/* Force row height */
-.ag-theme-alpine .ag-row {
-  height: 40px !important; /* h-10 */
-  min-height: 40px !important;
+/* Clean Look: Remove grid borders (matches Tab 2) */
+.rule-editor-grid .ag-theme-alpine .ag-row {
+  border-bottom-color: transparent !important;
+  height: 32px !important; /* Compact row height */
+  min-height: 32px !important;
 }
 
-/* PBI-Style Row Styling (Institutional Theme) */
+.rule-editor-grid .ag-theme-alpine .ag-cell {
+  border-right-color: transparent !important;
+  border-left: none !important;
+}
+
+/* Compact styling for clean look */
+.rule-editor-grid .ag-theme-alpine {
+  --ag-row-height: 32px;
+  --ag-header-height: 32px;
+  --ag-header-background-color: #f8f9fa;
+  --ag-header-foreground-color: #2c3e50;
+  --ag-border-color: transparent;
+  --ag-row-hover-color: #f0f8ff;
+  --ag-selected-row-background-color: #e3f2fd;
+}
+
+/* Force clean look - Override global defaults for this specific grid */
+.rule-editor-grid .ag-row-level-0 {
+  border-bottom: 1px solid transparent !important; /* Remove the thick line */
+  font-weight: 700 !important;
+}
+
+.rule-editor-grid .ag-row {
+  border-bottom-color: transparent !important;
+}
+
+.rule-editor-grid .ag-cell {
+  border-right: none !important;
+  border-left: none !important;
+}
+
+/* Remove the dashed lines on groups */
+.rule-editor-grid .ag-row[aria-level="1"] .ag-group-cell,
+.rule-editor-grid .ag-row[aria-level="2"] .ag-group-cell,
+.rule-editor-grid .ag-row[aria-level="3"] .ag-group-cell,
+.rule-editor-grid .ag-row[aria-level="4"] .ag-group-cell {
+  border-left: none !important;
+}
+
+/* PBI-Style Row Styling (Institutional Theme) - Keep for other grids */
 .ag-row-level-0 {
   font-weight: 700 !important;
   border-bottom: 2px solid #ddd !important;
@@ -210,11 +255,11 @@
   bottom: -1px;
 }
 
-/* Alternative approach: Use border-left for indented rows */
-.ag-row[aria-level="1"] .ag-group-cell,
-.ag-row[aria-level="2"] .ag-group-cell,
-.ag-row[aria-level="3"] .ag-group-cell,
-.ag-row[aria-level="4"] .ag-group-cell {
+/* Alternative approach: Use border-left for indented rows (only for non-rule-editor grids) */
+.ag-theme-alpine:not(.rule-editor-grid) .ag-row[aria-level="1"] .ag-group-cell,
+.ag-theme-alpine:not(.rule-editor-grid) .ag-row[aria-level="2"] .ag-group-cell,
+.ag-theme-alpine:not(.rule-editor-grid) .ag-row[aria-level="3"] .ag-group-cell,
+.ag-theme-alpine:not(.rule-editor-grid) .ag-row[aria-level="4"] .ag-group-cell {
   border-left: 1px dashed #d1d5db;
   padding-left: 8px;
   margin-left: 4px;

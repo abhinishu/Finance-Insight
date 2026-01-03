@@ -412,31 +412,189 @@ def create_snapshot(
             session.rollback()
             raise ValueError(f"Failed to load rules: {rules_error}") from rules_error
         
-        active_rules = {
+        # Phase 5.7: Separate SQL rules from Math rules (unified calculation logic)
+        sql_rules = {
             node_id: rule
             for node_id, rule in rules_dict.items()
-            if rule.sql_where  # Only rules with SQL WHERE clause are active
+            if rule.rule_type != 'NODE_ARITHMETIC' and rule.sql_where  # SQL rules only
         }
         
-        # Apply rules to ACTUAL scenario
+        math_rules = [
+            rule for rule in rules_dict.values()
+            if rule.rule_type == 'NODE_ARITHMETIC' and rule.rule_expression
+        ]
+        
+        # Resolve execution order for Math rules
+        sorted_math_rules = []
+        if math_rules:
+            try:
+                from app.services.dependency_resolver import DependencyResolver, CircularDependencyError
+                sorted_math_rules = DependencyResolver.resolve_execution_order(
+                    math_rules,
+                    hierarchy_dict
+                )
+                import logging
+                snapshot_logger = logging.getLogger(__name__)
+                snapshot_logger.info(f"create_snapshot: Resolved execution order for {len(sorted_math_rules)} Math rules")
+            except CircularDependencyError as e:
+                import logging
+                snapshot_logger = logging.getLogger(__name__)
+                snapshot_logger.error(f"Circular dependency detected in Math rules: {e}")
+                raise ValueError(f"Cannot execute Math rules: {e}")
+        
+        # Apply SQL rules to ACTUAL scenario
         try:
             actual_adjusted_results = apply_rules_to_results(
                 session, actual_facts_df, actual_natural_results,
-                hierarchy_dict, children_dict, active_rules, max_depth
+                hierarchy_dict, children_dict, sql_rules, max_depth
             )
         except Exception as rules_error:
             session.rollback()
-            raise ValueError(f"Failed to apply rules to ACTUAL: {rules_error}") from rules_error
+            raise ValueError(f"Failed to apply SQL rules to ACTUAL: {rules_error}") from rules_error
         
-        # Apply rules to PRIOR scenario
+        # Apply SQL rules to PRIOR scenario
         try:
             prior_adjusted_results = apply_rules_to_results(
                 session, prior_facts_df, prior_natural_results,
-                hierarchy_dict, children_dict, active_rules, max_depth
+                hierarchy_dict, children_dict, sql_rules, max_depth
             )
         except Exception as rules_error:
             session.rollback()
-            raise ValueError(f"Failed to apply rules to PRIOR: {rules_error}") from rules_error
+            raise ValueError(f"Failed to apply SQL rules to PRIOR: {rules_error}") from rules_error
+        
+        # Phase 5.7: Apply Math rules to ACTUAL scenario (after SQL rules)
+        if sorted_math_rules:
+            try:
+                from app.services.dependency_resolver import evaluate_type3_expression
+                from decimal import Decimal
+                import logging
+                snapshot_logger = logging.getLogger(__name__)
+                
+                snapshot_logger.info(f"create_snapshot: Applying {len(sorted_math_rules)} Math rules to ACTUAL scenario")
+                
+                for rule in sorted_math_rules:
+                    if rule.rule_type != 'NODE_ARITHMETIC':
+                        continue
+                    
+                    target_node = rule.node_id
+                    
+                    # Capture original value for Flight Recorder logging
+                    original_val = actual_adjusted_results.get(target_node, {}).get('daily', Decimal('0'))
+                    
+                    # Evaluate the arithmetic expression
+                    try:
+                        measure_name = rule.measure_name or 'daily_pnl'
+                        measure_key = 'daily'  # Default
+                        if 'mtd' in measure_name.lower() or 'commission' in measure_name.lower():
+                            measure_key = 'mtd'
+                        elif 'ytd' in measure_name.lower() or 'trade' in measure_name.lower():
+                            measure_key = 'ytd'
+                        elif 'pytd' in measure_name.lower():
+                            measure_key = 'pytd'
+                        
+                        calculated_values = evaluate_type3_expression(
+                            rule.rule_expression,
+                            actual_adjusted_results,
+                            measure=measure_key
+                        )
+                        
+                        # Update adjusted_results with calculated values
+                        actual_adjusted_results[target_node] = {
+                            'daily': Decimal(str(calculated_values.get('daily', Decimal('0')))),
+                            'wtd': Decimal(str(calculated_values.get('mtd', Decimal('0')))),
+                            'ytd': Decimal(str(calculated_values.get('ytd', Decimal('0')))),
+                        }
+                        
+                        new_val = actual_adjusted_results[target_node]['daily']
+                        
+                        # Flight Recorder Logging
+                        snapshot_logger.info(
+                            f"🧮 MATH ENGINE [ACTUAL]: Node {target_node} | "
+                            f"SQL Value: {original_val} | Rule: {rule.rule_expression} | "
+                            f"➡️ New Value: {new_val}"
+                        )
+                        
+                    except Exception as e:
+                        snapshot_logger.error(f"Error executing Math rule {rule.rule_id} for node {target_node} in ACTUAL: {e}")
+                        # Set to zero on error
+                        actual_adjusted_results[target_node] = {
+                            'daily': Decimal('0'),
+                            'wtd': Decimal('0'),
+                            'ytd': Decimal('0'),
+                        }
+                
+                snapshot_logger.info(f"create_snapshot: Successfully applied {len(sorted_math_rules)} Math rules to ACTUAL")
+                
+            except Exception as math_error:
+                session.rollback()
+                raise ValueError(f"Failed to apply Math rules to ACTUAL: {math_error}") from math_error
+        
+        # Phase 5.7: Apply Math rules to PRIOR scenario (after SQL rules)
+        if sorted_math_rules:
+            try:
+                from app.services.dependency_resolver import evaluate_type3_expression
+                from decimal import Decimal
+                import logging
+                snapshot_logger = logging.getLogger(__name__)
+                
+                snapshot_logger.info(f"create_snapshot: Applying {len(sorted_math_rules)} Math rules to PRIOR scenario")
+                
+                for rule in sorted_math_rules:
+                    if rule.rule_type != 'NODE_ARITHMETIC':
+                        continue
+                    
+                    target_node = rule.node_id
+                    
+                    # Capture original value for Flight Recorder logging
+                    original_val = prior_adjusted_results.get(target_node, {}).get('daily', Decimal('0'))
+                    
+                    # Evaluate the arithmetic expression
+                    try:
+                        measure_name = rule.measure_name or 'daily_pnl'
+                        measure_key = 'daily'  # Default
+                        if 'mtd' in measure_name.lower() or 'commission' in measure_name.lower():
+                            measure_key = 'mtd'
+                        elif 'ytd' in measure_name.lower() or 'trade' in measure_name.lower():
+                            measure_key = 'ytd'
+                        elif 'pytd' in measure_name.lower():
+                            measure_key = 'pytd'
+                        
+                        calculated_values = evaluate_type3_expression(
+                            rule.rule_expression,
+                            prior_adjusted_results,
+                            measure=measure_key
+                        )
+                        
+                        # Update adjusted_results with calculated values
+                        prior_adjusted_results[target_node] = {
+                            'daily': Decimal(str(calculated_values.get('daily', Decimal('0')))),
+                            'wtd': Decimal(str(calculated_values.get('mtd', Decimal('0')))),
+                            'ytd': Decimal(str(calculated_values.get('ytd', Decimal('0')))),
+                        }
+                        
+                        new_val = prior_adjusted_results[target_node]['daily']
+                        
+                        # Flight Recorder Logging
+                        snapshot_logger.info(
+                            f"🧮 MATH ENGINE [PRIOR]: Node {target_node} | "
+                            f"SQL Value: {original_val} | Rule: {rule.rule_expression} | "
+                            f"➡️ New Value: {new_val}"
+                        )
+                        
+                    except Exception as e:
+                        snapshot_logger.error(f"Error executing Math rule {rule.rule_id} for node {target_node} in PRIOR: {e}")
+                        # Set to zero on error
+                        prior_adjusted_results[target_node] = {
+                            'daily': Decimal('0'),
+                            'wtd': Decimal('0'),
+                            'ytd': Decimal('0'),
+                        }
+                
+                snapshot_logger.info(f"create_snapshot: Successfully applied {len(sorted_math_rules)} Math rules to PRIOR")
+                
+            except Exception as math_error:
+                session.rollback()
+                raise ValueError(f"Failed to apply Math rules to PRIOR: {math_error}") from math_error
         
         # Calculate variance
         try:
@@ -459,7 +617,7 @@ def create_snapshot(
                 variance_results,
                 hierarchy_dict,
                 children_dict,
-                active_rules,
+                {**sql_rules, **{rule.node_id: rule for rule in sorted_math_rules}},  # Combine SQL and Math rules
                 session
             )
         except Exception as save_error:
@@ -488,7 +646,7 @@ def create_snapshot(
                              for k, measures in prior_adjusted_results.items()},
             'variance_results': {k: {m: float(v) for m, v in measures.items()} 
                                 for k, measures in variance_results.items()},
-            'rules_applied': len(active_rules),
+            'rules_applied': len(sql_rules) + len(sorted_math_rules),
             'result_count': result_count,
             'duration_ms': duration_ms,
             'status': 'COMPLETED'

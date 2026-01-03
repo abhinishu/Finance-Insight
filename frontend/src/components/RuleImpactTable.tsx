@@ -103,3 +103,4 @@ const RuleImpactTable: React.FC<RuleImpactTableProps> = ({ attributionData }) =>
 export default RuleImpactTable
 
 
+
