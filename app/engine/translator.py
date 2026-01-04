@@ -17,6 +17,10 @@ import os
 import time
 from functools import wraps
 from typing import Any, Dict, List, Optional, Tuple
+from dotenv import load_dotenv
+
+# Ensure .env is loaded before checking GEMINI_API_KEY
+load_dotenv()
 
 try:
     import google.generativeai as genai

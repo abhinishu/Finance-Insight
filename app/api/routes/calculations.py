@@ -5,8 +5,13 @@ Provides endpoints for triggering calculations and retrieving results.
 
 import io
 import logging
+import os
 from typing import Optional
 from uuid import UUID
+from dotenv import load_dotenv
+
+# Ensure .env is loaded before checking GEMINI_API_KEY
+load_dotenv()
 
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
@@ -1066,7 +1071,6 @@ Use professional accounting language. Generate only the summary sentence, no add
         # Use Gemini to generate narrative
         try:
             import google.generativeai as genai
-            import os
             
             api_key = os.getenv("GEMINI_API_KEY")
             if not api_key:
