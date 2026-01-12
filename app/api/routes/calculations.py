@@ -9,9 +9,13 @@ import os
 from typing import Optional
 from uuid import UUID
 from dotenv import load_dotenv
+from pathlib import Path
 
 # Ensure .env is loaded before checking GEMINI_API_KEY
-load_dotenv()
+# Load from project root (parent of app directory)
+project_root = Path(__file__).parent.parent.parent.parent
+env_path = project_root / '.env'
+load_dotenv(dotenv_path=env_path)
 
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
@@ -87,6 +91,12 @@ def trigger_calculation(
         )
         logger.info(f"[API] Successfully completed calculate_use_case for use case {use_case_id}")
         
+        # PHASE 2A: Invalidate cache after calculation run
+        # New calculation run means natural values may have changed
+        from app.services.rollup_cache import invalidate_cache
+        invalidated_count = invalidate_cache(use_case_id)
+        logger.info(f"[API] Invalidated {invalidated_count} cache entries for use case {use_case_id} after calculation")
+        
         # Build summary message
         # CRITICAL FIX: Use .get() with safe defaults to prevent KeyError
         total_plug = result.get('total_plug', {})
@@ -146,6 +156,7 @@ def trigger_calculation(
 def get_calculation_results(
     use_case_id: UUID,
     run_id: Optional[UUID] = None,
+    force_recalculate: bool = False,
     db: Session = Depends(get_db)
 ):
     """
@@ -158,9 +169,13 @@ def get_calculation_results(
     
     If run_id is not provided, returns the most recent run.
     
+    PHASE 2A: Added caching support. Natural rollup results are cached for 30 seconds.
+    Use force_recalculate=true to bypass cache.
+    
     Args:
         use_case_id: Use case UUID
         run_id: Optional run ID (defaults to most recent)
+        force_recalculate: If True, bypass cache and recalculate natural rollups
         db: Database session
     
     Returns:
@@ -218,9 +233,21 @@ def get_calculation_results(
     
     # CRITICAL FIX: Always load hierarchy and calculate natural values, even if no run exists
     # This ensures Tab 3 shows data from unified_pnl_service (same as Tab 2) even without saved results
-    # Load hierarchy
+    # PHASE 2C FIX 2: Load hierarchy with caching support
     from app.engine.waterfall import load_hierarchy
-    hierarchy_dict, children_dict, leaf_nodes = load_hierarchy(db, use_case_id)
+    from app.services.hierarchy_cache import get_cached_hierarchy, set_cached_hierarchy
+    
+    # Check cache first
+    cached_hierarchy = get_cached_hierarchy(use_case_id, force_reload=force_recalculate)
+    
+    if cached_hierarchy is not None:
+        hierarchy_dict, children_dict, leaf_nodes = cached_hierarchy
+    else:
+        # Cache miss or expired - load from database
+        hierarchy_dict, children_dict, leaf_nodes = load_hierarchy(db, use_case_id)
+        
+        # Cache the results
+        set_cached_hierarchy(use_case_id, hierarchy_dict, children_dict, leaf_nodes)
     
     if not hierarchy_dict:
         raise HTTPException(
@@ -276,21 +303,31 @@ def get_calculation_results(
                 f"Results have run_id={[r.run_id for r in all_results]} and calculation_run_id={[r.calculation_run_id for r in all_results]}"
             )
     
-    # Load rules for this use case to get rule details
+    # PHASE 2C FIX 1: Load rules with caching support
     # Phase 5.9: Use explicit column selection to ensure Math rule fields are loaded
     # SQLAlchemy ORM might not load all columns, so we explicitly select what we need
-    rules_data = db.query(
-        MetadataRule.node_id,
-        MetadataRule.rule_id,
-        MetadataRule.logic_en,
-        MetadataRule.sql_where,
-        MetadataRule.rule_type,         # Critical: Math rule type
-        MetadataRule.rule_expression,   # Critical: Math rule formula
-        MetadataRule.rule_dependencies, # Critical: Math rule dependencies
-        MetadataRule.measure_name      # Phase 5.9: Measure name for display (e.g., 'pnl_commission', 'pnl_trade')
-    ).filter(
-        MetadataRule.use_case_id == use_case_id
-    ).all()
+    from app.services.rules_cache import get_cached_rules, set_cached_rules
+    
+    # Check cache first
+    rules_data = get_cached_rules(use_case_id, force_reload=force_recalculate)
+    
+    if rules_data is None:
+        # Cache miss or expired - load from database
+        rules_data = db.query(
+            MetadataRule.node_id,
+            MetadataRule.rule_id,
+            MetadataRule.logic_en,
+            MetadataRule.sql_where,
+            MetadataRule.rule_type,         # Critical: Math rule type
+            MetadataRule.rule_expression,   # Critical: Math rule formula
+            MetadataRule.rule_dependencies, # Critical: Math rule dependencies
+            MetadataRule.measure_name      # Phase 5.9: Measure name for display (e.g., 'pnl_commission', 'pnl_trade')
+        ).filter(
+            MetadataRule.use_case_id == use_case_id
+        ).all()
+        
+        # Cache the results
+        set_cached_rules(use_case_id, rules_data)
     
     # Build lookup dictionary using explicit column values (not ORM objects)
     # This ensures all fields are accessible, avoiding lazy loading issues
@@ -378,16 +415,6 @@ def get_calculation_results(
             } if rule_data else None,
         }
     
-    # INJECT LIVE BASELINE: Get the TRUE baseline from unified_pnl_service (Tab 2's logic)
-    # This ensures Tab 4 "Original P&L" matches Tab 2 exactly, not stale zombie data
-    from app.services.unified_pnl_service import get_unified_pnl
-    baseline_pnl = None
-    try:
-        baseline_pnl = get_unified_pnl(db, use_case_id, pnl_date=None, scenario='ACTUAL')
-        logger.info(f"calculations: Injected live baseline P&L from unified_pnl_service: {baseline_pnl}")
-    except Exception as baseline_error:
-        logger.warning(f"calculations: Failed to get baseline from unified_pnl_service (non-fatal): {baseline_error}")
-    
     # CRITICAL FIX: Use unified_pnl_service rollup logic (SAME AS TAB 2)
     # This replaces the broken calculate_natural_rollup with the working unified service
     # The unified service uses _calculate_strategy_rollup or _calculate_legacy_rollup internally
@@ -402,9 +429,10 @@ def get_calculation_results(
         input_table_name = use_case_obj.input_table_name
         if input_table_name and input_table_name.strip() == 'fact_pnl_use_case_3':
             # Use Case 3: Strategy rollup (same as get_unified_pnl)
+            # PHASE 2A: Pass force_recalculate to bypass cache if requested
             try:
                 natural_results = _calculate_strategy_rollup(
-                    db, use_case_id, hierarchy_dict, children_dict, leaf_nodes
+                    db, use_case_id, hierarchy_dict, children_dict, leaf_nodes, force_recalculate=force_recalculate
                 )
                 logger.info(f"[Results] Used strategy rollup for Use Case 3 (same as Tab 2)")
                 print(f"[Results] Used strategy rollup for Use Case 3 (same as Tab 2)")
@@ -414,9 +442,10 @@ def get_calculation_results(
                 natural_results = {}
         else:
             # Use Cases 1 & 2: Legacy rollup (same as get_unified_pnl)
+            # PHASE 2A: Pass force_recalculate to bypass cache if requested
             try:
                 natural_results = _calculate_legacy_rollup(
-                    db, use_case_id, hierarchy_dict, children_dict, leaf_nodes
+                    db, use_case_id, hierarchy_dict, children_dict, leaf_nodes, force_recalculate=force_recalculate
                 )
                 logger.info(f"[Results] Used legacy rollup for Use Cases 1 & 2 (same as Tab 2)")
                 print(f"[Results] Used legacy rollup for Use Cases 1 & 2 (same as Tab 2)")
@@ -428,6 +457,62 @@ def get_calculation_results(
         # No use case - initialize empty results
         logger.warning(f"[Results] No use case found, initializing empty natural_results")
         natural_results = {}
+    
+    # PHASE 2B FIX 1: Calculate baseline_pnl from cached natural_results instead of calling get_unified_pnl()
+    # This eliminates redundant SQL queries when rollup is already cached
+    # Only fallback to get_unified_pnl() if natural_results is empty
+    from app.services.unified_pnl_service import get_unified_pnl
+    baseline_pnl = None
+    
+    if natural_results:
+        # Calculate baseline totals from root nodes in natural_results
+        # Root nodes are nodes with parent_node_id == None
+        root_nodes = [
+            node_id for node_id, node in hierarchy_dict.items()
+            if node.parent_node_id is None
+        ]
+        
+        if root_nodes:
+            # Sum up values from all root nodes
+            baseline_daily = sum(
+                natural_results.get(node_id, {}).get('daily', Decimal('0'))
+                for node_id in root_nodes
+            )
+            baseline_mtd = sum(
+                natural_results.get(node_id, {}).get('mtd', Decimal('0'))
+                for node_id in root_nodes
+            )
+            baseline_ytd = sum(
+                natural_results.get(node_id, {}).get('ytd', Decimal('0'))
+                for node_id in root_nodes
+            )
+            
+            baseline_pnl = {
+                'daily_pnl': baseline_daily,
+                'mtd_pnl': baseline_mtd,
+                'ytd_pnl': baseline_ytd
+            }
+            
+            logger.info(
+                f"[Results] PHASE 2B: Calculated baseline from cached natural_results "
+                f"(root nodes: {len(root_nodes)}). Daily: {baseline_daily}, MTD: {baseline_mtd}, YTD: {baseline_ytd}"
+            )
+        else:
+            # No root nodes found - fallback to get_unified_pnl()
+            logger.warning(f"[Results] No root nodes found, falling back to get_unified_pnl()")
+            try:
+                baseline_pnl = get_unified_pnl(db, use_case_id, pnl_date=None, scenario='ACTUAL')
+                logger.info(f"[Results] Fallback: Injected live baseline P&L from unified_pnl_service: {baseline_pnl}")
+            except Exception as baseline_error:
+                logger.warning(f"[Results] Fallback: Failed to get baseline from unified_pnl_service (non-fatal): {baseline_error}")
+    else:
+        # natural_results is empty - fallback to get_unified_pnl()
+        logger.warning(f"[Results] natural_results is empty, falling back to get_unified_pnl()")
+        try:
+            baseline_pnl = get_unified_pnl(db, use_case_id, pnl_date=None, scenario='ACTUAL')
+            logger.info(f"[Results] Fallback: Injected live baseline P&L from unified_pnl_service: {baseline_pnl}")
+        except Exception as baseline_error:
+            logger.warning(f"[Results] Fallback: Failed to get baseline from unified_pnl_service (non-fatal): {baseline_error}")
     
     # Populate natural values and ensure all nodes have results
     # If no results were found in DB, still return hierarchy with natural values (zero adjusted/plug)

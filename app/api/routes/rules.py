@@ -181,6 +181,11 @@ def create_rule(
                 detail="Must provide either 'conditions' (manual), 'logic_en' (GenAI), 'rule_expression' (math), or 'sql_where' (direct)"
             )
         
+        # PHASE 2C FIX 1: Invalidate rules cache after create/update
+        from app.services.rules_cache import invalidate_cache
+        invalidate_cache(use_case_id)
+        logger.info(f"[Rules] Invalidated rules cache for use case {use_case_id} after create/update")
+        
         # Get node name for response
         node = db.query(DimHierarchy).filter(DimHierarchy.node_id == rule.node_id).first()
         node_name = node.node_name if node else None
@@ -566,6 +571,11 @@ def bulk_create_rules(
                 errors.append(f"Node {node_id}: {str(e)}")
                 failed_count += 1
         
+        # PHASE 2C FIX 1: Invalidate rules cache after bulk create
+        from app.services.rules_cache import invalidate_cache
+        invalidate_cache(use_case_id)
+        logger.info(f"[Rules] Invalidated rules cache for use case {use_case_id} after bulk create")
+        
         return BulkRuleResponse(
             success_count=success_count,
             failed_count=failed_count,
@@ -619,6 +629,11 @@ def bulk_delete_rules(
             
             db.commit()
             success_count = deleted_count
+            
+            # PHASE 2C FIX 1: Invalidate rules cache after delete
+            from app.services.rules_cache import invalidate_cache
+            invalidate_cache(use_case_id)
+            logger.info(f"[Rules] Invalidated rules cache for use case {use_case_id} after bulk delete")
             
             # Check if any requested nodes didn't have rules
             if deleted_count < len(request.node_ids):
