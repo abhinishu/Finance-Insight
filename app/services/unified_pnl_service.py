@@ -29,17 +29,23 @@ from app.services.dependency_resolver import (
     evaluate_type3_expression
 )
 
+# PHASE 2A: Import rollup cache
+from app.services.rollup_cache import get_cached_rollup, set_cached_rollup
+
 
 def _calculate_legacy_rollup(
     session: Session,
     use_case_id: UUID,
     hierarchy_dict: Dict,
     children_dict: Dict,
-    leaf_nodes: List[str]
+    leaf_nodes: List[str],
+    force_recalculate: bool = False
 ) -> Dict[str, Dict[str, Decimal]]:
     """
     Legacy rollup logic for Use Cases 1 & 2.
     Uses "Cost Center Match" strategy with bottom-up aggregation.
+    
+    PHASE 2A: Added caching support - checks cache before calculating.
     
     Logic:
     1. Query fact_pnl_gold (UC 1) or fact_pnl_entries (UC 2)
@@ -55,10 +61,17 @@ def _calculate_legacy_rollup(
         hierarchy_dict: Dictionary mapping node_id -> DimHierarchy node
         children_dict: Dictionary mapping parent_node_id -> list of children node_ids
         leaf_nodes: List of leaf node_ids
+        force_recalculate: If True, skip cache and recalculate
     
     Returns:
         Dictionary mapping node_id -> {daily: Decimal, mtd: Decimal, ytd: Decimal}
     """
+    # PHASE 2A: Check cache first
+    cached_result = get_cached_rollup(use_case_id, hierarchy_dict, force_recalculate)
+    if cached_result is not None:
+        logger.info(f"[Legacy Path] Using cached rollup for use_case_id: {use_case_id}")
+        return cached_result
+    
     logger.info(f"[Legacy Path] Calculating rollup for use_case_id: {use_case_id}")
     print(f"[Legacy Path] Calculating rollup for use_case_id: {use_case_id}")
     
@@ -75,7 +88,10 @@ def _calculate_legacy_rollup(
     use_case = session.query(UseCase).filter(UseCase.use_case_id == use_case_id).first()
     if not use_case:
         logger.error(f"[Legacy Path] Use case {use_case_id} not found")
-        return {}
+        empty_results = {}
+        # PHASE 2A: Cache empty result to avoid repeated lookups
+        set_cached_rollup(use_case_id, hierarchy_dict, empty_results)
+        return empty_results
     
     # Step 1: Fetch data grouped by cc_id (or category_code)
     fact_map = {}  # {cc_id/category_code: {'daily': Decimal, 'mtd': Decimal, 'ytd': Decimal}}
@@ -342,6 +358,9 @@ def _calculate_legacy_rollup(
     logger.info(f"[Legacy Path] Final: {final_matched_leaf_count}/{len(leaf_nodes)} leaf nodes with non-zero values, {parent_nodes_with_values} parent nodes populated")
     print(f"[Legacy Path] Final: {final_matched_leaf_count}/{len(leaf_nodes)} leaf nodes with non-zero values, {parent_nodes_with_values} parent nodes populated")
     
+    # PHASE 2A: Cache the result before returning
+    set_cached_rollup(use_case_id, hierarchy_dict, results)
+    
     return results
 
 
@@ -350,11 +369,14 @@ def _calculate_strategy_rollup(
     use_case_id: UUID,
     hierarchy_dict: Dict,
     children_dict: Dict,
-    leaf_nodes: List[str]
+    leaf_nodes: List[str],
+    force_recalculate: bool = False
 ) -> Dict[str, Dict[str, Decimal]]:
     """
     Strategy/Product rollup logic for Use Case 3.
     Uses "Strategy/Product Match" strategy with bottom-up aggregation.
+    
+    PHASE 2A: Added caching support - checks cache before calculating.
     
     Logic:
     1. Query fact_pnl_use_case_3 (fetch all rows)
@@ -370,11 +392,18 @@ def _calculate_strategy_rollup(
         hierarchy_dict: Dictionary mapping node_id -> DimHierarchy node
         children_dict: Dictionary mapping parent_node_id -> list of children node_ids
         leaf_nodes: List of leaf node_ids
+        force_recalculate: If True, skip cache and recalculate
     
     Returns:
         Dictionary mapping node_id -> {daily: Decimal, mtd: Decimal, ytd: Decimal}
         Mapping: pnl_daily -> daily, pnl_commission -> mtd, pnl_trade -> ytd
     """
+    # PHASE 2A: Check cache first
+    cached_result = get_cached_rollup(use_case_id, hierarchy_dict, force_recalculate)
+    if cached_result is not None:
+        logger.info(f"[Strategy Path] Using cached rollup for use_case_id: {use_case_id}")
+        return cached_result
+    
     logger.info(f"[Strategy Path] Calculating rollup for use_case_id: {use_case_id}")
     print(f"[Strategy Path] Calculating rollup for use_case_id: {use_case_id}")
     
@@ -590,6 +619,9 @@ def _calculate_strategy_rollup(
     matched_count = sum(1 for node_id in hierarchy_dict.keys() if results.get(node_id, {}).get('daily', Decimal('0')) != Decimal('0'))
     logger.info(f"[Strategy Path] Matched {matched_count}/{len(hierarchy_dict)} nodes with non-zero values")
     print(f"[Strategy Path] Matched {matched_count}/{len(hierarchy_dict)} nodes")
+    
+    # PHASE 2A: Cache the result before returning
+    set_cached_rollup(use_case_id, hierarchy_dict, results)
     
     return results
 
